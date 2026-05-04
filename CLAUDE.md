@@ -84,7 +84,8 @@ Every phase in [`dev_specs/10_development_plan.md`](dev_specs/10_development_pla
 5. If all tests pass: merge immediately with `gh pr merge --squash --auto` then switch back to `main` and pull.
 6. If any test fails: fix the failure, push the fix, then merge.
 7. After merge: append the entry to `dev/feature_log.md` and update the feature index in §5.
-8. **Proceed directly to the next phase** — no user prompt needed.
+8. Run `/compact` to compress the conversation context.
+9. **Proceed directly to the next phase** — no user prompt needed.
 
 **Always use the `gh` CLI for all GitHub operations** (creating PRs, merging, checking status). Never use the GitHub web UI or the GitHub MCP tool — `gh` is the only authoritative interface.
 
