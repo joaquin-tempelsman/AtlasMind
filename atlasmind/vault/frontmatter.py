@@ -12,6 +12,22 @@ from typing import Any
 
 import frontmatter as fm
 
+# ── compiled patterns ───────────────────────────────────────────────────────
+
+_LOG_ENTRY_RE = re.compile(
+    r"^## \[(?P<ts>[^\]]+)\] (?P<kind>\w+) \| (?P<rest>.+)$",
+    re.MULTILINE,
+)
+
+_ROUTE_HEADER_RE = re.compile(
+    r"^## \[(?P<ts>[^\]]+)\] route \| (?P<kb>[^|]+) \| (?P<conf>high|medium|low)$",
+    re.MULTILINE,
+)
+
+_FIELD_RE = re.compile(r"^\*\*(?P<key>[^*:]+):\*\*\s*(?P<val>.+)$")
+
+
+# ── frontmatter parse / serialize ───────────────────────────────────────────
 
 def parse(text: str) -> tuple[dict, str]:
     """Return (metadata_dict, body_text) from a markdown string."""
@@ -35,33 +51,22 @@ def write_file(path: Path, metadata: dict, body: str) -> None:
     path.write_text(serialize(metadata, body), encoding="utf-8")
 
 
-# ── general_log.md / log.md entry parsing ──────────────────────────────────
-
-_LOG_ENTRY_RE = re.compile(
-    r"^## \[(?P<ts>[^\]]+)\] (?P<kind>\w+) \| (?P<rest>.+)$",
-    re.MULTILINE,
-)
-
+# ── log entry parsing ────────────────────────────────────────────────────────
 
 def parse_log_entries(text: str) -> list[dict[str, Any]]:
     """Parse all `## [timestamp] kind | ...` headings from a log file.
 
     Malformed entries are skipped with a warning.
     """
-    entries: list[dict[str, Any]] = []
-    for m in _LOG_ENTRY_RE.finditer(text):
-        try:
-            entries.append(
-                {
-                    "timestamp": m.group("ts"),
-                    "kind": m.group("kind"),
-                    "rest": m.group("rest"),
-                    "raw_header": m.group(0),
-                }
-            )
-        except Exception as exc:  # noqa: BLE001
-            warnings.warn(f"Skipping malformed log entry: {m.group(0)!r} — {exc}")
-    return entries
+    return [
+        {
+            "timestamp": m.group("ts"),
+            "kind": m.group("kind"),
+            "rest": m.group("rest"),
+            "raw_header": m.group(0),
+        }
+        for m in _LOG_ENTRY_RE.finditer(text)
+    ]
 
 
 def parse_routing_log_entries(text: str) -> list[dict[str, Any]]:
@@ -71,28 +76,24 @@ def parse_routing_log_entries(text: str) -> list[dict[str, Any]]:
     Malformed entries are skipped with a warning.
     """
     entries: list[dict[str, Any]] = []
-
-    _ROUTE_HEADER = re.compile(
-        r"^## \[(?P<ts>[^\]]+)\] route \| (?P<kb>[^|]+) \| (?P<conf>high|medium|low)$",
-        re.MULTILINE,
-    )
-    _FIELD = re.compile(r"^\*\*(?P<key>[^*]+)\*\*: ?(?P<val>.+)$")
-
-    blocks = _ROUTE_HEADER.split(text)
-    headers = _ROUTE_HEADER.findall(text)
-
-    for i, header in enumerate(headers):
-        ts, kb, conf = header
-        block_text = blocks[i * 4 + 4] if len(blocks) > i * 4 + 4 else ""
-        entry: dict[str, Any] = {"timestamp": ts, "kb_slug": kb.strip(), "confidence": conf}
+    matches = list(_ROUTE_HEADER_RE.finditer(text))
+    for i, m in enumerate(matches):
+        block_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        block_text = text[m.end():block_end]
+        entry: dict[str, Any] = {
+            "timestamp": m.group("ts"),
+            "kb_slug": m.group("kb").strip(),
+            "confidence": m.group("conf"),
+        }
         for line in block_text.splitlines():
-            m = _FIELD.match(line.strip())
-            if m:
-                entry[m.group("key").lower().replace(" ", "_")] = m.group("val").strip()
+            field = _FIELD_RE.match(line.strip())
+            if field:
+                entry[field.group("key").lower().replace(" ", "_")] = field.group("val").strip()
         entries.append(entry)
-
     return entries
 
+
+# ── entry formatters ─────────────────────────────────────────────────────────
 
 def format_routing_log_entry(
     *,
