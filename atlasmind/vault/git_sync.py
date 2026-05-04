@@ -24,16 +24,20 @@ def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return result
 
 
-def pull(vault_root: Path) -> None:
-    """Pull latest changes. Uses --rebase to keep a linear history."""
+def _has_remote(vault_root: Path) -> bool:
     result = subprocess.run(
         ["git", "remote"],
         cwd=str(vault_root),
         capture_output=True,
         text=True,
     )
-    if not result.stdout.strip():
-        return  # no remote configured — local-only vault
+    return bool(result.stdout.strip())
+
+
+def pull(vault_root: Path) -> None:
+    """Pull latest changes. Uses --rebase to keep a linear history."""
+    if not _has_remote(vault_root):
+        return
     _run(["git", "pull", "--rebase"], vault_root)
 
 
@@ -45,36 +49,18 @@ def commit(vault_root: Path, message: str, paths: list[str] | None = None) -> st
     else:
         _run(["git", "add", "-A"], vault_root)
 
-    status = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=str(vault_root),
-        capture_output=True,
-        text=True,
-    )
+    status = _run(["git", "status", "--porcelain"], vault_root)
     if not status.stdout.strip():
-        return None  # nothing staged
+        return None
 
     _run(["git", "commit", "-m", message], vault_root)
-
-    sha_result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=str(vault_root),
-        capture_output=True,
-        text=True,
-    )
-    return sha_result.stdout.strip()
+    return _run(["git", "rev-parse", "HEAD"], vault_root).stdout.strip()
 
 
 def push(vault_root: Path) -> None:
     """Push to origin. Retries once after pull --rebase on rejection."""
-    result = subprocess.run(
-        ["git", "remote"],
-        cwd=str(vault_root),
-        capture_output=True,
-        text=True,
-    )
-    if not result.stdout.strip():
-        return  # no remote
+    if not _has_remote(vault_root):
+        return
 
     push_result = subprocess.run(
         ["git", "push"],
