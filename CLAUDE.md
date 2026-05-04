@@ -177,7 +177,8 @@ One line per merged feature, newest at top.
 > `<PR#> | YYYY-MM-DD | layer(s) | one-line description`
 
 <!-- BEGIN: feature index -->
-<!-- _no entries yet — append on every merge_ -->
+#2 | 2026-05-04 | agents.tools | Phase 3: interaction, kb_meta (stratified routing), kb_pages (KB-scoped), kb_log + finalize
+#1 | 2026-05-04 | scaffold, vault, ingestion | Phases 0–2: types, config, bootstrap, vault layer, ingestion layer
 <!-- END: feature index -->
 
 ---
