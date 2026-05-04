@@ -73,6 +73,29 @@ See [`dev_specs/07_git_versioning.md` §2](dev_specs/07_git_versioning.md) for t
   - Bullet list of new/changed within-layer tests.
   - Anything that touches `dev_specs/` is called out.
 
+### Phase-gated PR flow (agent rule — non-negotiable)
+
+Every phase in [`dev_specs/10_development_plan.md`](dev_specs/10_development_plan.md) gets its own PR. The agent follows this sequence automatically, without waiting for user confirmation between steps:
+
+1. Complete the phase — all code written, all tests passing locally (`pytest tests/ -q`).
+2. Commit to a branch named `feat/phase-<N>-<short-name>`.
+3. Push and open the PR using `gh pr create`.
+4. Run `pytest tests/ -q` one final time to confirm green.
+5. If all tests pass: merge immediately with `gh pr merge --squash --auto` then switch back to `main` and pull.
+6. If any test fails: fix the failure, push the fix, then merge.
+7. After merge: append the entry to `dev/feature_log.md` and update the feature index in §5.
+8. **Proceed directly to the next phase** — no user prompt needed.
+
+**Always use the `gh` CLI for all GitHub operations** (creating PRs, merging, checking status). Never use the GitHub web UI or the GitHub MCP tool — `gh` is the only authoritative interface.
+
+```bash
+# Standard phase-end sequence
+gh pr create --title "..." --body "..."
+pytest tests/ -q                          # must be green before merge
+gh pr merge --squash --delete-branch
+git checkout main && git pull
+```
+
 ---
 
 ## 4. Tracking discipline (the three logs)
@@ -179,10 +202,11 @@ For any feature work:
 - [ ] Contract tests written **and failing**.
 - [ ] Implementation lands in its own commits.
 - [ ] Within-layer unit tests written.
-- [ ] All tests pass locally.
-- [ ] PR opened referencing spec section + tests.
-- [ ] CI green.
-- [ ] After merge: append entry to `dev/feature_log.md` + add one-liner to §5 above. Same PR or follow-up `docs:` PR.
+- [ ] All tests pass locally (`.venv/bin/pytest tests/ -q`).
+- [ ] PR opened with `gh pr create` referencing spec section + tests.
+- [ ] Tests pass one final time — then merge with `gh pr merge --squash --delete-branch`.
+- [ ] Switch to `main`, pull, proceed to next phase immediately.
+- [ ] Append entry to `dev/feature_log.md` + add one-liner to §5 above.
 
 For any error encountered during a build:
 
@@ -195,10 +219,12 @@ For any error encountered during a build:
 
 ## 8. Tooling expectations
 
-- **Python 3.13.** Match user's pyenv (`.python-version` should pin this once we add it).
-- **Dependencies in `requirements.txt`** with explicit minor pins for core libs (`langchain>=1.0`, `python-telegram-bot==21.x`). See [`dev_specs/00_overview.md` §4](dev_specs/00_overview.md).
-- **Lint/format:** ruff (default config) — added as a dev dep in the first infra PR.
-- **Tests:** `pytest` + `pytest-asyncio`. Markers: `@pytest.mark.contract` for cross-layer tests, `@pytest.mark.unit` for within-layer.
+- **Python 3.13.** Pinned in `.python-version` (3.13.2). Run everything via `.venv/bin/python` / `.venv/bin/pytest`. The shell default may point to a different Python — do not use it.
+- **Virtualenv:** `.venv/` created with `python3.13 -m venv .venv`. Install with `.venv/bin/pip install -e ".[dev]"`.
+- **Dependencies in `requirements.txt`** with explicit minor pins for core libs. See [`dev_specs/00_overview.md` §4](dev_specs/00_overview.md).
+- **Lint/format:** ruff (default config) — added as a dev dep.
+- **Tests:** `pytest` + `pytest-asyncio`. Markers: `@pytest.mark.contract` for cross-layer tests, `@pytest.mark.unit` for within-layer. Run: `.venv/bin/pytest tests/ -q`.
+- **GitHub CLI:** all GitHub operations (PR create, merge, status) use `gh`. Never use the GitHub MCP tool or web UI. `gh` must be authenticated.
 - **Documentation:** when working with libraries (LangChain, python-telegram-bot, OpenAI SDK), use Context7 MCP to fetch current docs rather than relying on training data — see `~/.claude/rules/context7.md`.
 
 ---
