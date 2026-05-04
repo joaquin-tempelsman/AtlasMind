@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from atlasmind.bootstrap import run as bootstrap_run
+
 
 @pytest.fixture()
 def vault(tmp_path: Path) -> Path:
@@ -23,4 +25,11 @@ def vault(tmp_path: Path) -> Path:
         ["git", "commit", "--allow-empty", "-m", "init"],
         check=True, capture_output=True, cwd=str(tmp_path),
     )
+    return tmp_path
+
+
+@pytest.fixture()
+def bootstrapped_vault(tmp_path: Path) -> Path:
+    """A fully bootstrapped vault with all KBs from kb_definitions.md scaffolded."""
+    bootstrap_run(vault_path=tmp_path)
     return tmp_path

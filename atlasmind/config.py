@@ -8,13 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _require(name: str) -> str:
-    val = os.getenv(name)
-    if not val:
-        raise RuntimeError(f"Required env var {name!r} is not set. Copy .env.example to .env and fill it in.")
-    return val
-
-
 def _optional(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
@@ -26,7 +19,9 @@ TELEGRAM_ALLOWED_USER_IDS: list[int] = [
     if uid.strip()
 ]
 OPENAI_API_KEY: str = _optional("OPENAI_API_KEY")
-VAULT_REPO_PATH: Path = Path(_optional("VAULT_REPO_PATH", "")) if _optional("VAULT_REPO_PATH") else Path.cwd() / "vault"
+
+_vault_env = _optional("VAULT_REPO_PATH")
+VAULT_REPO_PATH: Path = Path(_vault_env) if _vault_env else Path.cwd() / "vault"
 
 KB_DEFINITIONS_PATH: Path = Path(__file__).parent.parent / "kb_definitions" / "kb_definitions.md"
 KB_DEFINITIONS_EXAMPLE_PATH: Path = Path(__file__).parent.parent / "kb_definitions" / "kb_definitions.example.md"

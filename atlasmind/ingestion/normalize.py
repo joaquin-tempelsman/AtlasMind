@@ -30,14 +30,11 @@ async def normalize(
         )
 
     if raw.kind == "voice":
-        text = raw.text or ""
         return NormalizedItem(
             received_at=raw.received_at,
-            text=text,
+            text=raw.text or "",
             source_kind="voice",
-            source_meta={
-                "voice_file_id": raw.voice_file_id,
-            },
+            source_meta={"voice_file_id": raw.voice_file_id},
             telegram_user_id=raw.telegram_user_id,
         )
 
@@ -49,8 +46,6 @@ async def normalize(
 
         if vault_root is not None:
             html_rel = link_html_filename(raw.received_at, url)
-            # Persist raw HTML — requires a separate fetch or we store the extracted text only.
-            # We store the extracted text as a placeholder; the full HTML path is recorded in meta.
             vault_fs.write_md(vault_root, html_rel, text)
             meta["html_path"] = html_rel
 
