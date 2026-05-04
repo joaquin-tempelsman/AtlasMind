@@ -30,6 +30,31 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #4 — Phase 5: pipeline + edge
+**Date:** 2026-05-04
+**Branch:** feat/phase-5-pipeline-edge
+**Layer(s):** pipeline, edge.session, edge.handlers, edge.telegram_app
+**Spec:** [dev_specs/10_development_plan.md Phase 5](../dev_specs/10_development_plan.md)
+
+### What changed
+- `edge/session.py` — in-memory session table; `SESSION_TIMEOUT = 600s`; `get/set_active/touch/drop/clear_all`
+- `pipeline.py` — `Pipeline` class with `process()` + `resume()`; per-KB `IngestQueue` with asyncio debounce timers; `reply_fn` callback for timer-fired Telegram replies
+- `edge/handlers.py` — `handle_voice` (download → transcribe → pipeline.process), `handle_text` (HITL resume or fresh process); auth guard on `TELEGRAM_ALLOWED_USER_IDS`; lazy `WhisperTranscriber` init (avoids OPENAI_API_KEY requirement at import time)
+- `edge/telegram_app.py` — `build_app(token)` wires voice + text `MessageHandler`s; attaches pipeline to `bot_data`
+- `atlasmind/main.py` — entry point; `run_polling(drop_pending_updates=True)`
+
+### Contracts asserted
+- `tests/contract/test_pipeline.py` — process returns `{"reply"}` shape; `{"interrupt_question"}` shape; resume after route interrupt; IngestQueue fires after delay; IngestQueue batches two items within window
+
+### Within-layer tests added
+- `tests/unit/test_session.py` — absent→None; set/get roundtrip; drop; timeout; touch; update expecting
+- `tests/unit/test_pipeline.py` — reply shape; interrupt_question; normalize error; resume no session; resume after route interrupt; timer fires; timer reset on second message; `_is_url` detection
+
+### Notes
+- `WhisperTranscriber` instantiates `OpenAI()` at construction; lazy init via `_get_transcriber()` is required to prevent OpenAI API key errors when importing handlers in tests
+- Per-KB ingest thread_id is `"{user_id}:{kb_slug}"` to avoid collision across KBs
+- `reply_fn` is passed into `Pipeline` at construction so the bot can reach users from timer callbacks without holding a reference to the `Update` object
+
 ## PR #3 — Phase 4: router and KB ingestion agents
 **Date:** 2026-05-04
 **Branch:** feat/phase-4-agents
