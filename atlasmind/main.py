@@ -9,7 +9,7 @@ def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set.")
     app = build_app(TELEGRAM_BOT_TOKEN)
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
