@@ -30,6 +30,30 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #3 — Phase 4: router and KB ingestion agents
+**Date:** 2026-05-04
+**Branch:** feat/phase-4-agents
+**Layer(s):** agents.router, agents.kb_ingestion
+**Spec:** [dev_specs/05_agent_layer.md §2–3](../dev_specs/05_agent_layer.md)
+
+### What changed
+- `agents/prompts/router_system.md` — static routing system prompt
+- `agents/prompts/kb_ingestion_system.md` — template with `{kb_agent_md}` + `{standard_workflow}` substituted at construction
+- `agents/router.py` — singleton per vault_root; `route()` + `resume_route()` for HITL
+- `agents/kb_ingestion.py` — singleton per `(vault_root, kb_slug)`; `ingest()` + `resume_ingest()`; breathing controlled by registry flag; dynamic context (index, log tail, items) in user message
+
+### Contracts asserted
+- `tests/contract/test_agents.py` — router log write; KB note creation + finalize; path escape; breathing absent by default; interrupt→resume for both agents
+
+### Within-layer tests added
+- `tests/unit/test_router.py` — happy path, log write, interrupt, resume, cache singleton
+- `tests/unit/test_kb_ingestion.py` — note creation, finalize, interrupt, empty batch, breathing flag, cache isolation, multi-tool
+
+### Notes
+- `langchain.agents.create_agent` (not deprecated `langgraph.prebuilt.create_react_agent`) — use `system_prompt=` not `prompt=`
+- `FakeToolCallingModel` pattern: subclass `FakeMessagesListChatModel`, override `bind_tools` to return `self`; responses are consumed in order by the agent loop
+- Tool messages from dict-returning tools are JSON-serialized in the ToolMessage content
+
 ## PR #2 — Phase 3: agent tools
 **Date:** 2026-05-04
 **Branch:** feat/phase-3-agent-tools
