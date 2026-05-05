@@ -30,6 +30,28 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #5 — Phase 6: CI/CD, README, setup.sh
+**Date:** 2026-05-04
+**Branch:** feat/phase-6-ci-readme
+**Layer(s):** ci, docs
+**Spec:** [dev_specs/10_development_plan.md Phase 6](../dev_specs/10_development_plan.md)
+
+### What changed
+- `.github/workflows/ci.yml` — ruff lint + pytest on every PR and push to main; `OPENAI_API_KEY=dummy-key-for-tests` for CI
+- `.github/workflows/deploy.yml` — on push to main: runs tests then SSHs to droplet; expects `DROPLET_HOST`, `DROPLET_USER`, `DROPLET_SSH_KEY` secrets
+- `README.md` — project overview, setup instructions, systemd deployment guide, project layout, dev workflow
+- `setup.sh` — creates `.venv/` if absent; uses `.venv/bin/python` throughout; improved prompts
+
+### Contracts asserted
+- None — infra/docs phase. All 154 existing tests pass unchanged.
+
+### Within-layer tests added
+- None.
+
+### Notes
+- Manual end-to-end tests (6.1–6.3 in the plan) require a live Telegram bot + OpenAI key — run manually before first production deploy
+- Add `DROPLET_HOST`, `DROPLET_USER`, `DROPLET_SSH_KEY` to GitHub repo secrets before the deploy workflow will fire
+
 ## PR #4 — Phase 5: pipeline + edge
 **Date:** 2026-05-04
 **Branch:** feat/phase-5-pipeline-edge
