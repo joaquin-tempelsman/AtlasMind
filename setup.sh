@@ -9,14 +9,22 @@ fi
 # ── Python version check ────────────────────────────────────────────────────
 if ! python3 --version 2>&1 | grep -qE "Python 3\.1[3-9]"; then
     echo "ERROR: Python 3.13+ is required."
-    echo "Install it via pyenv: pyenv install 3.13 && pyenv local 3.13"
+    echo "Install it via pyenv: pyenv install 3.13.2 && pyenv local 3.13.2"
     exit 1
 fi
+
+# ── Virtualenv ──────────────────────────────────────────────────────────────
+if [[ ! -d ".venv" ]]; then
+    echo "Creating .venv..."
+    python3 -m venv .venv
+fi
+PYTHON=".venv/bin/python"
+PIP=".venv/bin/pip"
 
 if ! $BOOTSTRAP_ONLY; then
     # ── Install dependencies ────────────────────────────────────────────────
     echo "Installing dependencies..."
-    pip install -e ".[dev]" --quiet
+    $PIP install -e ".[dev]" --quiet
 
     # ── Create .env if not present ──────────────────────────────────────────
     if [[ ! -f ".env" ]]; then
@@ -26,11 +34,10 @@ if ! $BOOTSTRAP_ONLY; then
         echo ""
 
         read -rp "  TELEGRAM_BOT_TOKEN: " tok
-        read -rp "  TELEGRAM_ALLOWED_USER_IDS (comma-separated): " ids
+        read -rp "  TELEGRAM_ALLOWED_USER_IDS (comma-separated ints): " ids
         read -rp "  OPENAI_API_KEY: " oai
-        read -rp "  VAULT_REPO_PATH (absolute path for the vault): " vault
+        read -rp "  VAULT_REPO_PATH (absolute path for the vault repo): " vault
 
-        # Write values into .env
         sed -i.bak \
             -e "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${tok}|" \
             -e "s|^TELEGRAM_ALLOWED_USER_IDS=.*|TELEGRAM_ALLOWED_USER_IDS=${ids}|" \
@@ -46,15 +53,19 @@ fi
 if [[ ! -f "kb_definitions/kb_definitions.md" ]]; then
     cp kb_definitions/kb_definitions.example.md kb_definitions/kb_definitions.md
     echo ""
-    echo "No KB definitions found. A template has been created at kb_definitions/kb_definitions.md."
-    echo "Edit it to define your knowledge bases, then re-run: ./setup.sh --bootstrap-vault"
+    echo "No KB definitions found. A template has been created at:"
+    echo "  kb_definitions/kb_definitions.md"
+    echo ""
+    echo "Edit it to define your knowledge bases, then re-run:"
+    echo "  ./setup.sh --bootstrap-vault"
     echo ""
     exit 0
 fi
 
 # ── Bootstrap the vault ─────────────────────────────────────────────────────
 echo "Bootstrapping vault..."
-python3 -m atlasmind.bootstrap
+$PYTHON -m atlasmind.bootstrap
 
 echo ""
-echo "Setup complete. Run: python -m atlasmind.main"
+echo "Setup complete."
+echo "Run:  source .venv/bin/activate && python -m atlasmind.main"
