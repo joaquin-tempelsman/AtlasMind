@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local test vault (created by dev/local_run.py)
+dev/.local_vault/
