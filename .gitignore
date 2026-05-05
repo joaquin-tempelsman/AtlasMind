@@ -219,3 +219,6 @@ __marimo__/
 
 # Local test vault (created by dev/local_run.py)
 dev/.local_vault/
+
+# Personal KB configuration (use kb_definitions.example.md as the public template)
+kb_definitions/kb_definitions.md
