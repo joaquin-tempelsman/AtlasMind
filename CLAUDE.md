@@ -177,6 +177,7 @@ One line per merged feature, newest at top.
 > `<PR#> | YYYY-MM-DD | layer(s) | one-line description`
 
 <!-- BEGIN: feature index -->
+#5 | 2026-05-04 | ci, docs | Phase 6: CI/CD workflows (ruff+pytest+SSH deploy), README, setup.sh venv fix
 #4 | 2026-05-04 | pipeline, edge | Phase 5: pipeline + edge (session, IngestQueue debounce, Telegram handlers, bot app)
 #3 | 2026-05-04 | agents.router, agents.kb_ingestion | Phase 4: router agent + KB ingestion agent with HITL and breathing flag
 #2 | 2026-05-04 | agents.tools | Phase 3: interaction, kb_meta (stratified routing), kb_pages (KB-scoped), kb_log + finalize
