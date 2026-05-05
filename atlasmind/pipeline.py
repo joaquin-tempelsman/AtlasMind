@@ -24,6 +24,7 @@ from atlasmind.agents.kb_ingestion import ingest, resume_ingest
 from atlasmind.agents.router import route, resume_route
 from atlasmind.ingestion.normalize import normalize
 from atlasmind.shared.types import RawMessage, RoutedItem
+from atlasmind.vault import git_sync
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,21 @@ class Pipeline:
             return
 
         summary = result.get("summary", "Ingested.")
+
+        # Commit vault changes produced by the agent
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: _vault_commit(self.vault_root, kb_slug, items),
+            )
+        except Exception as exc:
+            logger.exception("vault commit failed for kb=%s: %s", kb_slug, exc)
+            await self._send_reply(user_id, f"Ingested but vault commit failed: {exc}")
+            return
+
         await self._send_reply(user_id, summary)
+
+    # ------------------------------------------------------------------
 
     async def _send_reply(self, user_id: int, text: str) -> None:
         if self.reply_fn is not None:
@@ -201,3 +216,15 @@ class Pipeline:
                 await self.reply_fn(user_id, text)
             except Exception:
                 logger.exception("reply_fn failed for user_id=%s", user_id)
+
+
+def _vault_commit(vault_root: Path, kb_slug: str, items: list) -> None:
+    """Pull, commit all agent-written files, and push (if remote exists)."""
+    git_sync.pull(vault_root)
+    source = items[0].normalized.source_kind if items else "text"
+    message = (
+        f"note({kb_slug}): batch of {len(items)} item(s)\n\n"
+        f"source: {source}"
+    )
+    git_sync.commit(vault_root, message)
+    git_sync.push(vault_root)
