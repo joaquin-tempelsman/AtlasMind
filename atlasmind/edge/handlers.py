@@ -11,7 +11,8 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from atlasmind.config import TELEGRAM_ALLOWED_USER_IDS
+from atlasmind.agents import lint as lint_agent
+from atlasmind.config import TELEGRAM_ALLOWED_USER_IDS, VAULT_REPO_PATH
 from atlasmind.edge import url_registry
 from atlasmind.ingestion.transcriber import WhisperTranscriber
 from atlasmind.shared.types import RawMessage
@@ -156,6 +157,34 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     pipeline = _get_pipeline(context)
     result = await pipeline.process(raw, thread_id=thread_id)
     await _dispatch_result(update, user_id, thread_id, result)
+
+
+async def handle_lint(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /lint <kb_slug> — runs a structural audit on the specified KB."""
+    if not await _auth_guard(update):
+        return
+
+    text = (update.message.text or "").strip()
+    parts = text.split(None, 1)
+    if len(parts) < 2 or not parts[1].strip():
+        await update.message.reply_text("Usage: /lint <kb_slug>")
+        return
+
+    kb_slug = parts[1].strip()
+    vault_root = VAULT_REPO_PATH
+    user_id = update.effective_user.id
+
+    await update.message.reply_text(f"Running lint on {kb_slug}…")
+    try:
+        result = await lint_agent.run(
+            vault_root=vault_root,
+            kb_slug=kb_slug,
+            thread_id=f"lint:{user_id}:{kb_slug}",
+        )
+        await update.message.reply_text(result["summary"] or "Lint complete.")
+    except Exception as exc:
+        logger.exception("Lint failed for kb_slug=%s user_id=%s: %s", kb_slug, user_id, exc)
+        await update.message.reply_text(f"Lint failed: {exc}")
 
 
 async def _dispatch_result(
