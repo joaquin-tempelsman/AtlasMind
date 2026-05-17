@@ -5,12 +5,10 @@ by invoking a LangChain agent with kb_meta tools.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command

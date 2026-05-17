@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from atlasmind.vault.git_sync import GitSyncError, commit, is_dirty, pull, push
+from atlasmind.vault.git_sync import commit, is_dirty, pull, push
 
 
 def _configure_git(path: Path) -> None:

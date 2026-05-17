@@ -9,7 +9,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 
 from atlasmind.bootstrap import run as bootstrap_run
 from atlasmind.vault import frontmatter as fm

@@ -11,7 +11,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from atlasmind.vault import frontmatter as fm
-from atlasmind.vault.fs import append_md, read_md, exists
+from atlasmind.vault.fs import append_md
 
 
 # ── registry parsing ──────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from atlasmind.ingestion.link_fetcher import LinkFetcher, LinkFetchError
+from atlasmind.ingestion.link_fetcher import LinkFetcher
 from atlasmind.ingestion.transcriber import Transcriber
 from atlasmind.shared.types import NormalizedItem, RawMessage
 from atlasmind.vault import fs as vault_fs

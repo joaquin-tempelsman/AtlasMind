@@ -10,7 +10,7 @@ import pytest
 
 from atlasmind.bootstrap import run as bootstrap_run
 from atlasmind.pipeline import Pipeline
-from atlasmind.shared.types import NormalizedItem, RawMessage, RoutedItem
+from atlasmind.shared.types import NormalizedItem, RawMessage
 
 
 def _raw(kind: str = "text", text: str = "Hi", user_id: int = 1) -> RawMessage:

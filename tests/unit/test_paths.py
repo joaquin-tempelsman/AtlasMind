@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from atlasmind.vault.paths import (
-    entity_filename,
     entity_path,
     note_filename,
     note_path,

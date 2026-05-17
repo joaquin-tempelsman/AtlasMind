@@ -129,7 +129,7 @@ async def test_resume_route_completes(tmp_path: Path):
     # resume_route uses the cached agent (which has the InMemorySaver state)
     # The model now returns a commit_route after resume
     # We need to update the model's responses for the resume call
-    cached_agent = router.get_agent(tmp_path)
+    router.get_agent(tmp_path)
     # Re-inject responses into the underlying model — get it from the agent graph
     # Simpler: just provide a fresh model bound to the same cached agent
     # Actually the cached agent holds a reference to the original model.

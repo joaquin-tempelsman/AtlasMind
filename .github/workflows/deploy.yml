@@ -20,6 +20,9 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      - name: Set up kb_definitions for CI
+        run: cp kb_definitions/kb_definitions.example.md kb_definitions/kb_definitions.md
+
       - name: Run tests
         run: pytest tests/ -q
         env:

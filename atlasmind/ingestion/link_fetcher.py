@@ -5,7 +5,6 @@ Defines the LinkFetcher Protocol and the v0 readability-lxml implementation.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 
 import httpx

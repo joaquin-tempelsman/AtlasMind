@@ -10,7 +10,6 @@ from atlasmind.vault.frontmatter import (
     format_routing_log_entry,
     parse,
     parse_log_entries,
-    parse_routing_log_entries,
     serialize,
     write_file,
     parse_file,

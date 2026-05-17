@@ -146,7 +146,7 @@ class Pipeline:
         normalized: object,
         user_id: int,
     ) -> dict:
-        from atlasmind.shared.types import NormalizedItem, RoutedItem
+        from atlasmind.shared.types import RoutedItem
 
         routed = RoutedItem(
             normalized=normalized,

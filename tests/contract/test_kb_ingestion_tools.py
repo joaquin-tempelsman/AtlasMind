@@ -280,7 +280,7 @@ def test_register_entity_merges_aliases(bootstrapped_vault: Path):
 
     content = (bootstrapped_vault / "personal-diary" / "entities.md").read_text()
     # Exactly one line for the entity
-    entity_lines = [l for l in content.splitlines() if "Thomas Piketty" in l]
+    entity_lines = [ln for ln in content.splitlines() if "Thomas Piketty" in ln]
     assert len(entity_lines) == 1
     assert "Piketty" in entity_lines[0]
     assert "T. Piketty" in entity_lines[0]

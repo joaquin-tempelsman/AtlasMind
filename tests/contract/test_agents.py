@@ -13,7 +13,6 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages.tool import ToolCall
 
 from atlasmind.agents import kb_ingestion, router
-from atlasmind.bootstrap import run as bootstrap_run
 from atlasmind.shared.types import NormalizedItem, RoutedItem
 
 
