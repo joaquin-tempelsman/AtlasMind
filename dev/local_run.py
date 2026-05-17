@@ -37,6 +37,16 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="[%(levelname)s %(name)s] %(message)s",
+    stream=sys.stdout,
+)
+# Quiet noisy library loggers
+for _noisy in ("httpcore", "httpx", "openai", "urllib3", "telegram"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 from atlasmind.bootstrap import run as bootstrap_run
 from atlasmind.pipeline import Pipeline
 from atlasmind.shared.types import RawMessage
@@ -93,8 +103,12 @@ async def run(initial_message: str | None) -> None:
     # Pending HITL state: track whether the next stdin line is an answer
     state: dict = {"expecting_answer": False, "thread_id": str(FAKE_USER_ID)}
 
+    # Set when reply_fn is called — single-message mode waits on this
+    ingest_done = asyncio.Event()
+
     async def reply_fn(user_id: int, text: str) -> None:
-        print(f"\n[bot → you] {text}\n")
+        print(f"\n[bot → you] {text}\n", flush=True)
+        ingest_done.set()
 
     vault_root = _ensure_vault()
     pipeline = Pipeline(
@@ -120,7 +134,7 @@ async def run(initial_message: str | None) -> None:
 
         if "reply" in result:
             print(f"[bot → you] {result['reply']}")
-            print(f"            (ingest will fire in ~{INGEST_DELAY}s — vault files appear after)\n")
+            print(f"            (ingest will fire in ~{INGEST_DELAY}s)\n")
         elif "interrupt_question" in result:
             print(f"[bot → you] {result['interrupt_question']}")
             state["expecting_answer"] = True
@@ -129,13 +143,15 @@ async def run(initial_message: str | None) -> None:
 
     if initial_message:
         await send(initial_message)
-        # Keep the loop alive so the ingest timer can fire
-        print(f"Waiting {INGEST_DELAY + 2}s for ingest timer…")
-        await asyncio.sleep(INGEST_DELAY + 2)
+        print(f"Waiting for ingest to complete (timer: {INGEST_DELAY}s + LLM time)…")
+        try:
+            await asyncio.wait_for(ingest_done.wait(), timeout=INGEST_DELAY + 60)
+        except asyncio.TimeoutError:
+            print("[error] Timed out waiting for ingest reply. Check logs above for errors.")
         return
 
     # Interactive REPL
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     while True:
         try:
             prompt = "answer> " if state["expecting_answer"] else "you> "
