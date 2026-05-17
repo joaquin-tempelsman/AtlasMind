@@ -26,7 +26,7 @@ jobs:
           git config --global user.name "AtlasMind CI"
 
       - name: Set up kb_definitions for CI
-        run: cp kb_definitions/kb_definitions.example.md kb_definitions/kb_definitions.md
+        run: cp kb_definitions/kb_definitions.ci.md kb_definitions/kb_definitions.md
 
       - name: Run tests
         run: pytest tests/ -q
