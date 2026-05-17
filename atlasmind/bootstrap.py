@@ -106,6 +106,24 @@ def _scaffold_kb(vault: Path, kb: dict) -> None:
             """),
     )
 
+    _write_file(
+        kb_root / "entities.md",
+        textwrap.dedent(f"""\
+            ---
+            type: kb_entity_registry
+            kb: {slug}
+            ---
+
+            # Entity Registry
+
+            Each line: Canonical Name | alias1 | alias2 | ...
+            Edit this file in Obsidian or via the vault repo to pre-define entities.
+            The ingestion agent uses canonical names when creating entity pages.
+
+            ---
+            """),
+    )
+
     (kb_root / "notes").mkdir(parents=True, exist_ok=True)
     (kb_root / "notes" / ".gitkeep").touch()
 

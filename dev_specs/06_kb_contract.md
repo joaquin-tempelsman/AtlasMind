@@ -12,13 +12,14 @@ Every KB folder contains, at minimum:
 
 ```
 <kb_slug>/
-├── agent.md       # KB-specific schema/prompt addendum
-├── index.md       # catalog of pages in this KB
-├── log.md         # chronological per-KB log
-└── notes/         # default destination for new notes
+├── agent.md        # KB-specific schema/prompt addendum
+├── entities.md     # entity alias registry (user-editable + agent-maintained)
+├── index.md        # catalog of pages in this KB
+├── log.md          # chronological per-KB log
+└── notes/          # default destination for new notes
 ```
 
-These four are scaffolded by `setup.sh` (which calls `python -m atlasmind.bootstrap`) from the definitions in `kb_definitions/kb_definitions.md`. The agent can *create* additional folders (`people/`, `topics/`, `books/`, etc.) as the KB's `agent.md` directs.
+These five are scaffolded by `setup.sh` (which calls `python -m atlasmind.bootstrap`) from the definitions in `kb_definitions/kb_definitions.md`. The agent can *create* additional folders (`people/`, `topics/`, `books/`, etc.) as the KB's `agent.md` directs.
 
 ---
 
@@ -313,7 +314,47 @@ Git history of the vault captures when schemas changed. The user can revert an `
 
 ---
 
-## 11. What the user can break (and we accept)
+## 11. `entities.md` — entity alias registry
+
+Each KB has an `entities.md` file that maps canonical entity names to their known aliases. It serves two purposes:
+
+1. **User pre-definition:** Before ingesting content about "Piketty", the user adds `Thomas Piketty | Piketty | T. Piketty` so the agent always uses the canonical page name.
+2. **Agent auto-registration:** After creating a new entity page, the agent calls `register_entity()` to add that entity to the registry for future reference.
+
+### Format
+
+```markdown
+---
+type: kb_entity_registry
+kb: <kb_slug>
+---
+
+# Entity Registry
+
+Each line: Canonical Name | alias1 | alias2 | ...
+Edit this file in Obsidian or via the vault repo to pre-define entities.
+The ingestion agent uses canonical names when creating entity pages.
+
+---
+Thomas Piketty | Piketty | T. Piketty | @piketty
+Café Tortoni | Tortoni | the café
+```
+
+- One entity per line, pipe-separated.
+- First field is the canonical name — this is used for the page slug (`vault/paths.py:entity_filename`).
+- Remaining fields are aliases — alternate references the agent should recognize.
+- Blank lines, header lines (`#`), and the YAML frontmatter block are ignored by the parser.
+- The file is user-editable at any time in Obsidian or via the vault repo.
+
+### Agent behavior
+
+Before creating or updating any entity page, the KB ingestion agent reads the "Entity Registry" section injected into its batch context. If a referenced name matches a known alias, it uses the canonical name for the page path and title. After creating a new entity page not already in the registry, it calls `register_entity(canonical_name, aliases)` to log it.
+
+The `register_entity` tool is provided by `atlasmind/agents/tools/kb_entities.py` and merges new aliases into existing entries rather than overwriting them.
+
+---
+
+## 12. What the user can break (and we accept)
 
 The intended workflow is Telegram-only. The user opens Obsidian to **read**, not to write. The only deliberate vault edits are `agent.md` and `routing_rules.md`.
 

@@ -248,3 +248,48 @@ async def test_extract_url_metadata_calls_haiku_model():
 
     call_kwargs = mock_client_instance.messages.create.call_args
     assert call_kwargs.kwargs["model"] == "claude-haiku-4-5-20251001"
+
+
+# ── register_entity (kb_entities) ────────────────────────────────────────────
+
+@pytest.mark.contract
+def test_register_entity_appends_new_entry(bootstrapped_vault: Path):
+    """register_entity writes a new pipe-separated line to entities.md."""
+    from atlasmind.agents.tools.kb_entities import make_kb_entity_tools
+
+    tools = make_kb_entity_tools(bootstrapped_vault, "personal-diary")
+    register = next(t for t in tools if t.name == "register_entity")
+
+    result = register.invoke({"canonical_name": "Thomas Piketty", "aliases": ["Piketty"]})
+
+    assert result == "Registered: Thomas Piketty"
+    content = (bootstrapped_vault / "personal-diary" / "entities.md").read_text()
+    assert "Thomas Piketty | Piketty" in content
+
+
+@pytest.mark.contract
+def test_register_entity_merges_aliases(bootstrapped_vault: Path):
+    """Calling register_entity twice for the same canonical merges aliases, no duplicate line."""
+    from atlasmind.agents.tools.kb_entities import make_kb_entity_tools
+
+    tools = make_kb_entity_tools(bootstrapped_vault, "personal-diary")
+    register = next(t for t in tools if t.name == "register_entity")
+
+    register.invoke({"canonical_name": "Thomas Piketty", "aliases": ["Piketty"]})
+    register.invoke({"canonical_name": "Thomas Piketty", "aliases": ["T. Piketty"]})
+
+    content = (bootstrapped_vault / "personal-diary" / "entities.md").read_text()
+    # Exactly one line for the entity
+    entity_lines = [l for l in content.splitlines() if "Thomas Piketty" in l]
+    assert len(entity_lines) == 1
+    assert "Piketty" in entity_lines[0]
+    assert "T. Piketty" in entity_lines[0]
+
+
+@pytest.mark.contract
+def test_entities_md_scaffolded_per_kb(bootstrapped_vault: Path):
+    """Bootstrap scaffolds entities.md in every KB folder."""
+    entities = bootstrapped_vault / "personal-diary" / "entities.md"
+    assert entities.exists()
+    content = entities.read_text()
+    assert "type: kb_entity_registry" in content
