@@ -76,8 +76,11 @@ These are the only objects that cross layer boundaries in v0. Defined as plain P
 - text: str | None                  # None for voice until transcribed
 - voice_file_id: str | None
 - url: str | None
+- linked_url: str | None            # set when a voice/text msg is a Telegram reply to a URL msg
 - raw_payload: dict                 # original update for debugging only
 ```
+
+**URL reply linking (L0):** When a URL message arrives, L0 stores the message_id → URL mapping in a per-user `UrlRegistry` (24h TTL, module-level, separate from session). When any subsequent voice or text message arrives with `reply_to_message`, L0 checks the registry and, if matched, sets `linked_url` on the `RawMessage`. The KB ingestion agent (L3) uses this to associate commentary with the linked article and to call `extract_url_metadata` when the KB is configured with `url_metadata_fields`.
 
 ### `NormalizedItem` (L1 → L2)
 ```
