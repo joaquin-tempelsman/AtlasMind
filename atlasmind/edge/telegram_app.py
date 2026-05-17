@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from telegram.ext import Application, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from atlasmind.config import VAULT_REPO_PATH
-from atlasmind.edge.handlers import handle_text, handle_voice
+from atlasmind.edge.handlers import handle_lint, handle_text, handle_voice
 from atlasmind.pipeline import Pipeline
 
 
@@ -27,6 +27,7 @@ def build_app(token: str, vault_root: Path | None = None) -> Application:
     pipeline = Pipeline(vault_root=vault_root, reply_fn=_make_reply_fn(app))
     app.bot_data["pipeline"] = pipeline
 
+    app.add_handler(CommandHandler("lint", handle_lint))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 

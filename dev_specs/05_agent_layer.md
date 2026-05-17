@@ -272,6 +272,36 @@ This system is intended to run for years. A few specific concerns and how v0 han
 | HITL interrupt with no follow-up (user disappears) | session timeout | session evicted at 10 min; thread state lingers in checkpointer until process restart |
 | Two messages from same user mid-flight | edge | second message is treated as a *resume* (because session is active with `expecting="answer"`). If the user actually meant a new message, they say so and we'll get it wrong sometimes. v0 limitation. |
 
+## §4 — Lint agent
+
+The lint agent is a read-heavy, one-shot audit that scans a single KB for structural issues and produces a markdown report.
+
+**Trigger:** User sends `/lint <kb_slug>` via Telegram. The `handle_lint` command handler in `edge/handlers.py` calls `lint.run(vault_root, kb_slug, thread_id)`.
+
+**Module:** `atlasmind/agents/lint.py`  
+**System prompt:** `atlasmind/agents/prompts/lint_system.md`  
+**Tools:** `make_kb_page_tools(vault_root, kb_slug)` + `make_kb_lint_tools(vault_root, kb_slug)`
+
+### Checks performed (in order)
+
+1. **Orphan pages** — files with no incoming `[[wikilink]]` from index.md or any other page.
+2. **Missing entity links** — entity names mentioned in notes as plain text, without a `[[wikilink]]` to their entity page.
+3. **Duplicate entity pages** — entity page pairs that likely represent the same real-world entity (name overlap + content similarity).
+
+### Agent design
+
+- No HITL (`ask_user` is not in the tool set).
+- No `InMemorySaver` checkpointer (one-shot, no resume needed).
+- Agent reads with `list_pages`, `read_page`, `search_pages`, `read_index`; writes one report file with `write_page`; terminates with `finalize_lint(summary)`.
+
+### Output
+
+- Report written to `<kb_slug>/lint/YYYY-MM-DD-lint-report.md`.
+- `finalize_lint` returns `{"done": True, "summary": str}`.
+- `lint.run()` returns `{"summary": str}` which the edge handler sends to Telegram.
+
+---
+
 ## Out of scope (v0)
 
 - Cross-KB awareness ("when filing in personal-diary, also note in econ-politics that I commented on inflation").
