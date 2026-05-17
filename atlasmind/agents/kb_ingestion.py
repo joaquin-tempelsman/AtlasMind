@@ -16,6 +16,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from atlasmind.agents.tools.interaction import ask_user
+from atlasmind.agents.tools.kb_entities import make_kb_entity_tools
 from atlasmind.agents.tools.kb_log import make_kb_log_tools
 from atlasmind.agents.tools.kb_meta import _parse_registry
 from atlasmind.agents.tools.kb_pages import make_kb_page_tools
@@ -39,6 +40,19 @@ _STANDARD_WORKFLOW = """\
 7. Produce a one-line summary for this item.
 
 After ALL items are processed, call finalize(summary_for_user) exactly once.\
+"""
+
+_ENTITY_RESOLUTION_ADDON = """\
+
+## Entity Resolution
+
+Before creating or updating any entity page:
+1. Check the "Entity Registry" section in your context.
+2. If a referenced name matches a known alias, use the canonical name for the
+   page path and title (e.g., if "Piketty" maps to "Thomas Piketty", create
+   or update people/thomas-piketty.md — not people/piketty.md).
+3. After creating a new entity page not already in the registry, call
+   register_entity() to log the canonical name and any aliases you observed.\
 """
 
 _BREATHING_ADDON = """\
@@ -90,7 +104,7 @@ def _build_system_prompt(vault_root: Path, kb_slug: str) -> str:
     breathing = kb_entry.get("breathing", "false") == "true"
     url_fields = _parse_url_metadata_fields(kb_entry)
 
-    workflow = _STANDARD_WORKFLOW + (_BREATHING_ADDON if breathing else "")
+    workflow = _STANDARD_WORKFLOW + _ENTITY_RESOLUTION_ADDON + (_BREATHING_ADDON if breathing else "")
     if url_fields:
         fields_repr = str(url_fields)
         workflow += _URL_METADATA_ADDON.format(
@@ -120,6 +134,7 @@ def get_agent(
         tools = (
             make_kb_page_tools(vault_root, kb_slug)
             + make_kb_log_tools(vault_root, kb_slug)
+            + make_kb_entity_tools(vault_root, kb_slug)
             + [ask_user]
         )
         if url_fields:
@@ -179,11 +194,19 @@ def _build_batch_message(vault_root: Path, kb_slug: str, items: list[RoutedItem]
 
         item_blocks.append(f"{header}\n\n{body}")
 
+    entities_path = vault_root / kb_slug / "entities.md"
+    entities_section = (
+        f"\n\n## Entity Registry\n\n{entities_path.read_text(encoding='utf-8')}"
+        if entities_path.exists()
+        else ""
+    )
+
     items_text = "\n\n---\n\n".join(item_blocks)
     return (
         f"## Current KB Index\n\n{kb_index}\n\n"
-        f"## Recent Log (last 30 lines)\n\n{kb_recent_log}\n\n"
-        f"## Items to Ingest ({len(items)} item(s))\n\n{items_text}"
+        f"## Recent Log (last 30 lines)\n\n{kb_recent_log}"
+        + entities_section
+        + f"\n\n## Items to Ingest ({len(items)} item(s))\n\n{items_text}"
     )
 
 

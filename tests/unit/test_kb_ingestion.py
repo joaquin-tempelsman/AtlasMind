@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages.tool import ToolCall
 
 from atlasmind.agents import kb_ingestion
+from atlasmind.agents.kb_ingestion import _build_batch_message
 from atlasmind.bootstrap import run as bootstrap_run
 from atlasmind.shared.types import NormalizedItem, RoutedItem
 
@@ -202,3 +203,29 @@ async def test_ingest_multi_tool_calls(tmp_path: Path):
     result = await kb_ingestion.ingest([_routed()], tmp_path, "t-5", model=model)
     assert result["summary"] == "Filed coffee note."
     assert (tmp_path / "personal-diary" / "notes" / "2026-05-04-coffee.md").exists()
+
+
+@pytest.mark.unit
+def test_batch_message_includes_entity_registry(tmp_path: Path):
+    """_build_batch_message includes entity registry content when entities.md exists."""
+    bootstrap_run(vault_path=tmp_path)
+    # Add an entity to the registry
+    entities_path = tmp_path / "personal-diary" / "entities.md"
+    with entities_path.open("a", encoding="utf-8") as f:
+        f.write("Thomas Piketty | Piketty\n")
+
+    msg = _build_batch_message(tmp_path, "personal-diary", [_routed()])
+
+    assert "Entity Registry" in msg
+    assert "Thomas Piketty" in msg
+
+
+@pytest.mark.unit
+def test_batch_message_no_entity_registry_section_when_missing(tmp_path: Path):
+    """_build_batch_message omits entity registry section when entities.md absent."""
+    bootstrap_run(vault_path=tmp_path)
+    (tmp_path / "personal-diary" / "entities.md").unlink()
+
+    msg = _build_batch_message(tmp_path, "personal-diary", [_routed()])
+
+    assert "Entity Registry" not in msg
