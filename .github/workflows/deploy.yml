@@ -36,6 +36,6 @@ jobs:
           script: |
             cd ~/AtlasMind
             git pull origin main
-            pip install -e ".[dev]" --quiet
+            .venv/bin/pip install -e ".[dev]" --quiet
             sudo systemctl restart atlasmind
             echo "Deploy complete"
