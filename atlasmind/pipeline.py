@@ -162,10 +162,10 @@ class Pipeline:
         if kb_slug in self._timers:
             self._timers[kb_slug].cancel()
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._timers[kb_slug] = loop.call_later(
             self.ingest_delay_seconds,
-            lambda slug=kb_slug, uid=user_id: asyncio.ensure_future(
+            lambda slug=kb_slug, uid=user_id: loop.create_task(
                 self._fire_ingest(slug, uid)
             ),
         )

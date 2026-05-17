@@ -138,6 +138,9 @@ def _generate_registry(vault: Path, kbs: list[dict]) -> None:
         lines.append(f"- **Active:** {str(kb.get('active', True)).lower()}")
         lines.append(f"- **Breathing:** {str(kb.get('breathing', False)).lower()}")
         lines.append(f"- **Ingest delay (min):** {kb.get('ingest_delay_minutes', 5)}")
+        url_fields = kb.get("url_metadata_fields") or []
+        lines.append(f"- **URL metadata fields:** {', '.join(url_fields)}")
+        lines.append(f"- **Include article content:** {str(kb.get('include_article_content', False)).lower()}")
         lines.append("")
 
     meta = vault / "_meta"

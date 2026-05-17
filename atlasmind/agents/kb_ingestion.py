@@ -19,6 +19,8 @@ from atlasmind.agents.tools.interaction import ask_user
 from atlasmind.agents.tools.kb_log import make_kb_log_tools
 from atlasmind.agents.tools.kb_meta import _parse_registry
 from atlasmind.agents.tools.kb_pages import make_kb_page_tools
+from atlasmind.agents.tools.url_metadata import make_extract_url_metadata_tool
+from atlasmind.ingestion.link_fetcher import ReadabilityLinkFetcher
 from atlasmind.shared.types import RoutedItem
 
 _PROMPT_TEMPLATE = (
@@ -49,8 +51,27 @@ to another existing page in this KB, append a `> [!note] Related` callout to the
 new note pointing at it. If nothing notable, skip. Do NOT restructure anything.\
 """
 
+_URL_METADATA_ADDON = """\
+
+## URL metadata extraction (enabled for this KB)
+
+This KB is configured to extract structured metadata from linked articles.
+Metadata fields to extract: {fields}.
+
+For any item where source_kind="link", OR any voice/text item whose batch entry
+notes "linked_url", call extract_url_metadata(url=<url>, fields={fields_repr})
+BEFORE creating the note. Include the returned values in the note's frontmatter
+under the appropriate field names. Do not guess metadata — only use what the tool returns.\
+"""
+
 _agent_cache: dict[str, object] = {}
 _saver_cache: dict[str, InMemorySaver] = {}
+
+
+def _parse_url_metadata_fields(kb_entry: dict) -> list[str]:
+    """Return the list of URL metadata fields from a registry KB entry."""
+    raw = kb_entry.get("url_metadata_fields", "")
+    return [f.strip() for f in raw.split(",") if f.strip()]
 
 
 def _cache_key(vault_root: Path, kb_slug: str) -> str:
@@ -67,23 +88,44 @@ def _build_system_prompt(vault_root: Path, kb_slug: str) -> str:
     entries = _parse_registry(vault_root)
     kb_entry = next((e for e in entries if e["slug"] == kb_slug), {})
     breathing = kb_entry.get("breathing", "false") == "true"
+    url_fields = _parse_url_metadata_fields(kb_entry)
+
     workflow = _STANDARD_WORKFLOW + (_BREATHING_ADDON if breathing else "")
+    if url_fields:
+        fields_repr = str(url_fields)
+        workflow += _URL_METADATA_ADDON.format(
+            fields=", ".join(url_fields),
+            fields_repr=fields_repr,
+        )
+
     return _PROMPT_TEMPLATE.format(kb_agent_md=kb_agent_md, standard_workflow=workflow)
 
 
 def get_agent(
-    vault_root: Path, kb_slug: str, model: BaseChatModel | None = None
+    vault_root: Path,
+    kb_slug: str,
+    model: BaseChatModel | None = None,
+    link_fetcher=None,
 ) -> object:
     """Return the cached KB ingestion agent for (vault_root, kb_slug)."""
     key = _cache_key(vault_root, kb_slug)
     if key not in _agent_cache:
         if model is None:
             model = ChatOpenAI(model="gpt-4o", temperature=0)
+
+        entries = _parse_registry(vault_root)
+        kb_entry = next((e for e in entries if e["slug"] == kb_slug), {})
+        url_fields = _parse_url_metadata_fields(kb_entry)
+
         tools = (
             make_kb_page_tools(vault_root, kb_slug)
             + make_kb_log_tools(vault_root, kb_slug)
             + [ask_user]
         )
+        if url_fields:
+            fetcher = link_fetcher or ReadabilityLinkFetcher()
+            tools = tools + [make_extract_url_metadata_tool(fetcher)]
+
         saver = InMemorySaver()
         _saver_cache[key] = saver
         _agent_cache[key] = create_agent(
@@ -113,11 +155,31 @@ def _build_batch_message(vault_root: Path, kb_slug: str, items: list[RoutedItem]
     else:
         kb_recent_log = "(no log)"
 
-    items_text = "\n\n---\n\n".join(
-        f"**Item {i + 1}** (source: {item.normalized.source_kind}, "
-        f"received: {item.normalized.received_at.isoformat()})\n\n{item.normalized.text}"
-        for i, item in enumerate(items)
-    )
+    entries = _parse_registry(vault_root)
+    kb_entry = next((e for e in entries if e["slug"] == kb_slug), {})
+    include_content = kb_entry.get("include_article_content", "false") == "true"
+
+    item_blocks: list[str] = []
+    for i, item in enumerate(items):
+        n = item.normalized
+        header = (
+            f"**Item {i + 1}** (source: {n.source_kind}, "
+            f"received: {n.received_at.isoformat()})"
+        )
+        body = n.text
+
+        if n.source_kind == "link" and include_content:
+            raw_text = n.source_meta.get("raw_article_text", "")
+            if raw_text:
+                body = body + f"\n\n**Full article content:**\n\n{raw_text}"
+
+        linked_url = n.source_meta.get("linked_url")
+        if linked_url:
+            body = body + f"\n\n_This item is commentary on: {linked_url}_"
+
+        item_blocks.append(f"{header}\n\n{body}")
+
+    items_text = "\n\n---\n\n".join(item_blocks)
     return (
         f"## Current KB Index\n\n{kb_index}\n\n"
         f"## Recent Log (last 30 lines)\n\n{kb_recent_log}\n\n"
@@ -141,6 +203,7 @@ async def ingest(
     vault_root: Path,
     thread_id: str,
     model: BaseChatModel | None = None,
+    link_fetcher=None,
 ) -> dict:
     """Ingest a batch of RoutedItems into their KB.
 
@@ -150,7 +213,7 @@ async def ingest(
     if not items:
         return {"summary": "No items to ingest."}
     kb_slug = items[0].kb_slug
-    agent = get_agent(vault_root, kb_slug, model)
+    agent = get_agent(vault_root, kb_slug, model, link_fetcher=link_fetcher)
     config = {"configurable": {"thread_id": thread_id}}
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": _build_batch_message(vault_root, kb_slug, items)}]},

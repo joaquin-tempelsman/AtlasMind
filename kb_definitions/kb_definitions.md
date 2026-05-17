@@ -161,6 +161,10 @@ kbs:
     kindle_sync: false
     breathing: false
     ingest_delay_minutes: 5
+    url_metadata_fields:
+      - media_source
+      - article_writer
+    include_article_content: false
     agent_md: |
       ---
       type: kb_agent_md
