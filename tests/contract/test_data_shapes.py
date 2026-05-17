@@ -52,6 +52,35 @@ class TestRawMessage:
         assert msg.kind == "link"
         assert msg.url == "https://example.com"
 
+    def test_linked_url_field_defaults_none(self):
+        msg = RawMessage(
+            telegram_user_id=1, chat_id=1,
+            received_at=datetime.now(timezone.utc),
+            kind="voice",
+            voice_file_id="xyz",
+        )
+        assert msg.linked_url is None
+
+    def test_linked_url_set_on_voice(self):
+        msg = RawMessage(
+            telegram_user_id=1, chat_id=1,
+            received_at=datetime.now(timezone.utc),
+            kind="voice",
+            voice_file_id="xyz",
+            linked_url="https://cenital.com/article",
+        )
+        assert msg.linked_url == "https://cenital.com/article"
+
+    def test_linked_url_set_on_text(self):
+        msg = RawMessage(
+            telegram_user_id=1, chat_id=1,
+            received_at=datetime.now(timezone.utc),
+            kind="text",
+            text="Great analysis",
+            linked_url="https://cnn.com/2026/05/article",
+        )
+        assert msg.linked_url == "https://cnn.com/2026/05/article"
+
     def test_is_dataclass(self):
         assert dataclasses.is_dataclass(RawMessage)
 

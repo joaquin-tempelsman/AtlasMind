@@ -1,15 +1,19 @@
-"""Contract tests: KB ingestion tools (kb_pages + kb_log).
+"""Contract tests: KB ingestion tools (kb_pages + kb_log + url_metadata).
 
 Spec: dev_specs/05_agent_layer.md §3 — KB ingestion agent tools
+Spec: dev_specs/06_kb_contract.md §2 — url_metadata_fields
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from atlasmind.agents.tools.kb_log import make_kb_log_tools
 from atlasmind.agents.tools.kb_pages import make_kb_page_tools
+from atlasmind.agents.tools.url_metadata import make_extract_url_metadata_tool
 from atlasmind.vault.fs import PathEscapeError
 
 
@@ -183,3 +187,64 @@ def test_finalize_returns_done_and_summary(bootstrapped_vault: Path):
     result = finalize.invoke({"summary_for_user": "Ingested 2 notes."})
     assert result["done"] is True
     assert result["summary"] == "Ingested 2 notes."
+
+
+# ── extract_url_metadata ──────────────────────────────────────────────────────
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extract_url_metadata_returns_requested_fields():
+    """extract_url_metadata must return a dict with exactly the requested fields.
+
+    Spec: dev_specs/06_kb_contract.md §2 — url_metadata_fields
+    """
+    fake_article_text = "CNN article by John Smith about economics."
+    fake_meta = {"url": "https://cnn.com/article", "title": "Economics Today", "fetched_at": "2026-01-01T00:00:00Z"}
+    expected = {"media_source": "CNN", "article_writer": "John Smith"}
+
+    mock_link_fetcher = AsyncMock()
+    mock_link_fetcher.fetch.return_value = (fake_article_text, fake_meta)
+
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock(text=json.dumps(expected))]
+    mock_anthropic_response = mock_message
+
+    tool = make_extract_url_metadata_tool(mock_link_fetcher)
+
+    with patch("atlasmind.agents.tools.url_metadata.anthropic.AsyncAnthropic") as MockClient:
+        mock_client_instance = AsyncMock()
+        MockClient.return_value = mock_client_instance
+        mock_client_instance.messages.create = AsyncMock(return_value=mock_anthropic_response)
+
+        result = await tool.ainvoke({"url": "https://cnn.com/article", "fields": ["media_source", "article_writer"]})
+
+    assert isinstance(result, dict)
+    assert "media_source" in result
+    assert "article_writer" in result
+    mock_link_fetcher.fetch.assert_called_once_with("https://cnn.com/article")
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extract_url_metadata_calls_haiku_model():
+    """extract_url_metadata must use claude-haiku-4-5 for cost efficiency."""
+    fake_article_text = "Some article text."
+    fake_meta = {"url": "https://example.com", "title": "Example", "fetched_at": "2026-01-01T00:00:00Z"}
+
+    mock_link_fetcher = AsyncMock()
+    mock_link_fetcher.fetch.return_value = (fake_article_text, fake_meta)
+
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock(text='{"media_source": "Example"}')]
+
+    tool = make_extract_url_metadata_tool(mock_link_fetcher)
+
+    with patch("atlasmind.agents.tools.url_metadata.anthropic.AsyncAnthropic") as MockClient:
+        mock_client_instance = AsyncMock()
+        MockClient.return_value = mock_client_instance
+        mock_client_instance.messages.create = AsyncMock(return_value=mock_message)
+
+        await tool.ainvoke({"url": "https://example.com", "fields": ["media_source"]})
+
+    call_kwargs = mock_client_instance.messages.create.call_args
+    assert call_kwargs.kwargs["model"] == "claude-haiku-4-5-20251001"

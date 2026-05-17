@@ -49,10 +49,13 @@ async def test_normalize_link_calls_fetcher(tmp_path: Path):
         {"url": "https://example.com/article", "title": "Article Title", "fetched_at": "2026-05-02T14:25:03Z"},
     )
     item = await normalize(raw, link_fetcher=fetcher, vault_root=tmp_path)
-    assert item.text.startswith("Article Title")
+    # text is short repr — full article stored in source_meta["raw_article_text"]
+    assert "[Link]" in item.text
+    assert "Article Title" in item.text
     assert item.source_kind == "link"
     assert item.source_meta["url"] == "https://example.com/article"
     assert item.source_meta["title"] == "Article Title"
+    assert item.source_meta["raw_article_text"] == "Article Title\n\nArticle body text."
     fetcher.fetch.assert_awaited_once_with("https://example.com/article")
 
 
@@ -92,3 +95,66 @@ async def test_normalize_unknown_kind():
     raw.kind = "unknown"  # type: ignore[assignment]
     with pytest.raises(ValueError, match="Unknown"):
         await normalize(raw)
+
+
+@pytest.mark.unit
+async def test_normalize_link_short_repr_no_full_text_in_text():
+    """link items: NormalizedItem.text is short repr, not full article."""
+    raw = _raw(kind="link", url="https://ft.com/article")
+    fetcher = AsyncMock()
+    fetcher.fetch.return_value = (
+        "Full article text that is very long...",
+        {"url": "https://ft.com/article", "title": "FT: Argentina deal", "fetched_at": "2026-05-02T14:25:03Z"},
+    )
+    item = await normalize(raw, link_fetcher=fetcher)
+    assert item.text == "[Link] FT: Argentina deal\nURL: https://ft.com/article"
+    assert item.source_meta["raw_article_text"] == "Full article text that is very long..."
+
+
+@pytest.mark.unit
+async def test_normalize_link_short_repr_no_title():
+    """link items without title fall back to url-only short repr."""
+    raw = _raw(kind="link", url="https://example.com")
+    fetcher = AsyncMock()
+    fetcher.fetch.return_value = (
+        "Some text.",
+        {"url": "https://example.com", "fetched_at": "2026-05-02T14:25:03Z"},
+    )
+    item = await normalize(raw, link_fetcher=fetcher)
+    assert item.text == "[Link] https://example.com"
+
+
+@pytest.mark.unit
+async def test_normalize_voice_with_linked_url():
+    """voice + linked_url: linked_url stored in source_meta."""
+    raw = _raw(kind="voice", text="My commentary", voice_file_id="abc",
+               linked_url="https://cenital.com/article")
+    item = await normalize(raw)
+    assert item.text == "My commentary"
+    assert item.source_meta["voice_file_id"] == "abc"
+    assert item.source_meta["linked_url"] == "https://cenital.com/article"
+
+
+@pytest.mark.unit
+async def test_normalize_voice_without_linked_url():
+    """voice without linked_url: source_meta has no linked_url key."""
+    raw = _raw(kind="voice", text="Just a note", voice_file_id="xyz")
+    item = await normalize(raw)
+    assert "linked_url" not in item.source_meta
+
+
+@pytest.mark.unit
+async def test_normalize_text_with_linked_url():
+    """text + linked_url: linked_url stored in source_meta."""
+    raw = _raw(kind="text", text="Interesting take", linked_url="https://cnn.com/piece")
+    item = await normalize(raw)
+    assert item.text == "Interesting take"
+    assert item.source_meta["linked_url"] == "https://cnn.com/piece"
+
+
+@pytest.mark.unit
+async def test_normalize_text_without_linked_url():
+    """text without linked_url: source_meta is empty."""
+    raw = _raw(kind="text", text="Plain text")
+    item = await normalize(raw)
+    assert item.source_meta == {}

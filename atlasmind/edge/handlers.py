@@ -12,6 +12,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from atlasmind.config import TELEGRAM_ALLOWED_USER_IDS
+from atlasmind.edge import url_registry
 from atlasmind.ingestion.transcriber import WhisperTranscriber
 from atlasmind.shared.types import RawMessage
 
@@ -71,6 +72,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     await msg.reply_text(f"Transcript: {transcript}")
 
+    linked_url: str | None = None
+    if msg.reply_to_message is not None:
+        linked_url = url_registry.lookup(user_id, msg.reply_to_message.message_id)
+
     raw = RawMessage(
         telegram_user_id=user_id,
         chat_id=msg.chat_id,
@@ -78,6 +83,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         kind="voice",
         text=transcript,
         voice_file_id=msg.voice.file_id,
+        linked_url=linked_url,
     )
 
     pipeline = _get_pipeline(context)
@@ -113,14 +119,38 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     thread_id = str(user_id)
     session.set_active(user_id, thread_id)
 
-    kind = "link" if _is_url(text) else "text"
+    if _is_url(text):
+        raw = RawMessage(
+            telegram_user_id=user_id,
+            chat_id=msg.chat_id,
+            received_at=msg.date,
+            kind="link",
+            text=text,
+            url=text,
+        )
+        pipeline = _get_pipeline(context)
+        result = await pipeline.process(raw, thread_id=thread_id)
+        # Register message_id → url so subsequent replies can be linked.
+        # Store both the user's message id and the bot's reply id (if we get one).
+        url_registry.register(user_id, msg.message_id, text)
+        if "reply" in result and update.message:
+            # The bot's reply message_id is not easily accessible here without
+            # capturing the sent message; register will be called in _dispatch_result.
+            pass
+        await _dispatch_result(update, user_id, thread_id, result, link_url=text)
+        return
+
+    linked_url: str | None = None
+    if msg.reply_to_message is not None:
+        linked_url = url_registry.lookup(user_id, msg.reply_to_message.message_id)
+
     raw = RawMessage(
         telegram_user_id=user_id,
         chat_id=msg.chat_id,
         received_at=msg.date,
-        kind=kind,
+        kind="text",
         text=text,
-        url=text if kind == "link" else None,
+        linked_url=linked_url,
     )
 
     pipeline = _get_pipeline(context)
@@ -129,12 +159,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def _dispatch_result(
-    update: Update, user_id: int, thread_id: str, result: dict
+    update: Update, user_id: int, thread_id: str, result: dict,
+    link_url: str | None = None,
 ) -> None:
     from atlasmind.edge import session
 
     if "reply" in result:
-        await update.message.reply_text(result["reply"])
+        sent = await update.message.reply_text(result["reply"])
+        if link_url is not None:
+            url_registry.register(user_id, sent.message_id, link_url)
         session.drop(user_id)
     elif "interrupt_question" in result:
         await update.message.reply_text(result["interrupt_question"])

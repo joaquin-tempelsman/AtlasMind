@@ -15,6 +15,7 @@ class RawMessage:
     text: str | None = None
     voice_file_id: str | None = None
     url: str | None = None
+    linked_url: str | None = None
     raw_payload: dict = field(default_factory=dict)
 
 

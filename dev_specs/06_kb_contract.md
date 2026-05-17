@@ -52,9 +52,15 @@ Each entry in `kb_definitions.md`:
   kindle_sync: false             # Kindle API integration (per-KB feature flag; v0+1)
   breathing: false               # thin per-ingest breathing step (default false; enable when vault is mature)
   ingest_delay_minutes: 5        # debounce window before batch ingest fires (default 5)
+  url_metadata_fields: []        # LLM-extracted URL metadata fields (e.g. [media_source, article_writer])
+  include_article_content: false # forward full article text to KB agent (default false — keeps context lean)
 ```
 
 All fields except `slug`, `name`, `description`, and `active` have defaults and are optional.
+
+`url_metadata_fields` controls which structured metadata the KB ingestion agent extracts from linked articles via an LLM call. The agent calls `extract_url_metadata(url, fields)` for any link item or voice/text item with a `linked_url`. If the list is empty, no metadata extraction is performed.
+
+`include_article_content` controls whether the full readability-extracted article text is forwarded to the KB ingestion agent in the batch prompt. When `false` (default), only a short representation (`[Link] {title}\nURL: {url}`) is forwarded, keeping context lean. The raw article text is still stored in `source_meta["raw_article_text"]` but not surfaced in the prompt.
 
 ### `_meta/kb_registry.md` — generated, do not edit
 
@@ -76,6 +82,8 @@ generated_from: kb_definitions/kb_definitions.md
 - **Active:** true
 - **Breathing:** false
 - **Ingest delay (min):** 5
+- **URL metadata fields:** 
+- **Include article content:** false
 
 ## reflections
 - **Name:** Reflections
