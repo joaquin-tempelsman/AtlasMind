@@ -30,6 +30,29 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #9 — Phase 9: Lint agent (/lint Telegram command)
+**Date:** 2026-05-17
+**Branch:** feat/phase-9-lint-agent
+**Layer(s):** agents.lint, agents.tools, edge.handlers
+
+### What changed
+- `agents/lint.py` (new) — one-shot lint agent; no HITL, no checkpointer; singleton cache; `run() → {"summary": str}`
+- `agents/prompts/lint_system.md` (new) — three-check audit prompt: orphan pages, missing entity links, duplicate entity pages
+- `agents/tools/kb_lint.py` (new) — `finalize_lint(summary)` terminal tool
+- `edge/handlers.py` — `handle_lint` command handler for `/lint <kb_slug>`
+- `edge/telegram_app.py` — `CommandHandler("lint", handle_lint)` registered
+- `dev_specs/05_agent_layer.md` — lint agent documented as §4
+
+### Contracts asserted
+- `tests/contract/test_lint_tools.py` — finalize_lint shape: `{done: True, summary: str}`, accepts empty string
+
+### Within-layer tests added
+- `tests/unit/test_lint.py` — 6 tests: run returns summary, empty on no finalize, cache singleton, cache isolated by KB, prompt contains slug, correct tool set
+
+### Notes
+- Report written to `<kb_slug>/lint/YYYY-MM-DD-lint-report.md`
+- Reuses existing `make_kb_page_tools()` for all reads — path-escape safety inherited
+
 ## PR #8 — Phase 8: Entity alias registry per KB
 **Date:** 2026-05-17
 **Branch:** feat/phase-8-entity-aliasing

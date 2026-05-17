@@ -177,6 +177,7 @@ One line per merged feature, newest at top.
 > `<PR#> | YYYY-MM-DD | layer(s) | one-line description`
 
 <!-- BEGIN: feature index -->
+#9 | 2026-05-17 | agents.lint, agents.tools, edge.handlers | Phase 9: lint agent (/lint command), orphan/missing-link/duplicate checks, finalize_lint
 #8 | 2026-05-17 | agents.kb_ingestion, agents.tools, bootstrap | Phase 8: entity alias registry (entities.md), register_entity tool, alias resolution in agent
 #7 | 2026-05-17 | edge, ingestion, agents | Phase 7: KB url metadata (haiku extraction), reply-based URL linking, linked_url field
 #5 | 2026-05-04 | ci, docs | Phase 6: CI/CD workflows (ruff+pytest+SSH deploy), README, setup.sh venv fix
