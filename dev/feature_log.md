@@ -30,6 +30,28 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #8 — Phase 8: Entity alias registry per KB
+**Date:** 2026-05-17
+**Branch:** feat/phase-8-entity-aliasing
+**Layer(s):** agents.kb_ingestion, agents.tools, bootstrap, vault
+
+### What changed
+- `bootstrap.py` — `_scaffold_kb()` creates `entities.md` per KB with header template
+- `agents/tools/kb_entities.py` (new) — `make_kb_entity_tools()` factory with `register_entity` tool; append-or-merge so canonical lines are never duplicated
+- `agents/kb_ingestion.py` — entity tools added to tool set; `entities.md` injected as "Entity Registry" into `_build_batch_message`; `_ENTITY_RESOLUTION_ADDON` prompt section instructs alias resolution and auto-registration
+- `dev_specs/06_kb_contract.md` — `entities.md` added to KB folder listing (§1) and new §11 documents format and agent contract
+
+### Contracts asserted
+- `tests/contract/test_kb_ingestion_tools.py` — register_entity appends, merges aliases, entities.md scaffolded per KB
+
+### Within-layer tests added
+- `tests/unit/test_kb_entities.py` — 5 tests: append, no-alias, merge, missing-file graceful, multi-entity
+- `tests/unit/test_kb_ingestion.py` — entity registry injected in batch message; absent when entities.md missing
+
+### Notes
+- Users edit entities.md in Obsidian/git directly; no Telegram command needed for v0
+- Agent auto-registers newly created entity pages, growing the registry organically
+
 ## PR #7 — Phase 7: KB-level URL metadata + reply-based URL linking
 **Date:** 2026-05-17
 **Branch:** feat/phase-7-rebased
