@@ -30,6 +30,37 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #7 — Phase 7: KB-level URL metadata + reply-based URL linking
+**Date:** 2026-05-17
+**Branch:** feat/phase-7-rebased
+**Layer(s):** edge, ingestion, agents.kb_ingestion, agents.tools, shared.types
+**Spec:** [dev_specs/06_kb_contract.md §2](../dev_specs/06_kb_contract.md), [dev_specs/01_architecture.md §3](../dev_specs/01_architecture.md)
+
+### What changed
+- `shared/types.py` — added `linked_url: str | None` to `RawMessage` (L0→L1 contract)
+- `edge/url_registry.py` (new) — per-user in-memory registry (24h TTL) mapping Telegram message_ids to URLs; separate from session, survives session expiry
+- `edge/handlers.py` — URL messages register both user msg_id and bot reply msg_id; voice/text handlers detect `reply_to_message` and attach `linked_url` to `RawMessage`
+- `ingestion/normalize.py` — link kind: `NormalizedItem.text` is now short repr `[Link] {title}\nURL: {url}`; full article stored in `source_meta["raw_article_text"]`; voice/text: `linked_url` propagated into `source_meta`
+- `agents/tools/url_metadata.py` (new) — `make_extract_url_metadata_tool(link_fetcher)`: fetches URL, calls `claude-haiku-4-5-20251001` to extract KB-configured metadata fields (e.g. media_source, article_writer)
+- `agents/kb_ingestion.py` — parses `url_metadata_fields` + `include_article_content` from registry; injects URL metadata extraction instructions into system prompt; adds `extract_url_metadata` tool to agent toolset when fields configured; `_build_batch_message` conditionally includes full article text and annotates items with `linked_url`
+- `bootstrap.py` — `_generate_registry` writes `URL metadata fields` and `Include article content` to `_meta/kb_registry.md`
+- `dev_specs/06_kb_contract.md` — added `url_metadata_fields` and `include_article_content` to KB definition schema
+- `dev_specs/01_architecture.md` — added `linked_url` to `RawMessage` shape; documented URL reply registry at L0
+- `requirements.txt` — added `anthropic>=0.40,<1.0`
+
+### Contracts asserted
+- `tests/contract/test_data_shapes.py` — `linked_url` field defaults None, set on voice, set on text
+- `tests/contract/test_kb_ingestion_tools.py` — `extract_url_metadata` returns dict with requested fields; uses `claude-haiku-4-5-20251001` model
+
+### Within-layer tests added
+- `tests/unit/test_url_registry.py` — register/lookup, multi-user isolation, TTL expiry, clear_user/clear_all
+- `tests/unit/test_normalize.py` — short repr for link items, `raw_article_text` in meta, `linked_url` propagation for voice and text, no `linked_url` key when absent
+
+### Notes
+- `kb_definitions.md` is gitignored (personal config) — add `url_metadata_fields: [media_source, article_writer]` and `include_article_content: false` to local econ-politics entry to activate extraction
+- The debounce timer naturally batches a URL + N voice replies into one ingest run — no special grouping logic needed
+- `extract_url_metadata` re-fetches the URL (separate from the normalization fetch); acceptable trade-off for simplicity; could cache in v0+1
+
 ## PR #5 — Phase 6: CI/CD, README, setup.sh
 **Date:** 2026-05-04
 **Branch:** feat/phase-6-ci-readme
