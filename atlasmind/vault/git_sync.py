@@ -35,10 +35,18 @@ def _has_remote(vault_root: Path) -> bool:
 
 
 def pull(vault_root: Path) -> None:
-    """Pull latest changes. Uses --rebase to keep a linear history."""
+    """Pull latest changes. Stashes unstaged work so --rebase doesn't refuse."""
     if not _has_remote(vault_root):
         return
-    _run(["git", "pull", "--rebase"], vault_root)
+    stashed = False
+    if is_dirty(vault_root):
+        _run(["git", "stash", "--include-untracked"], vault_root)
+        stashed = True
+    try:
+        _run(["git", "pull", "--rebase"], vault_root)
+    finally:
+        if stashed:
+            _run(["git", "stash", "pop"], vault_root)
 
 
 def commit(vault_root: Path, message: str, paths: list[str] | None = None) -> str | None:
