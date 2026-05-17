@@ -21,20 +21,26 @@ async def normalize(
     vault_root: Path | None = None,
 ) -> NormalizedItem:
     if raw.kind == "text":
+        meta: dict = {}
+        if raw.linked_url:
+            meta["linked_url"] = raw.linked_url
         return NormalizedItem(
             received_at=raw.received_at,
             text=(raw.text or "").strip(),
             source_kind="text",
-            source_meta={},
+            source_meta=meta,
             telegram_user_id=raw.telegram_user_id,
         )
 
     if raw.kind == "voice":
+        meta = {"voice_file_id": raw.voice_file_id}
+        if raw.linked_url:
+            meta["linked_url"] = raw.linked_url
         return NormalizedItem(
             received_at=raw.received_at,
             text=raw.text or "",
             source_kind="voice",
-            source_meta={"voice_file_id": raw.voice_file_id},
+            source_meta=meta,
             telegram_user_id=raw.telegram_user_id,
         )
 
@@ -42,16 +48,22 @@ async def normalize(
         if link_fetcher is None:
             raise ValueError("link_fetcher is required for kind='link'")
         url = raw.url or raw.text or ""
-        text, meta = await link_fetcher.fetch(url)
+        article_text, meta = await link_fetcher.fetch(url)
 
         if vault_root is not None:
             html_rel = link_html_filename(raw.received_at, url)
-            vault_fs.write_md(vault_root, html_rel, text)
+            vault_fs.write_md(vault_root, html_rel, article_text)
             meta["html_path"] = html_rel
+
+        # Store full article text in meta for optional downstream use.
+        # NormalizedItem.text holds only a short repr to keep agent context lean.
+        meta["raw_article_text"] = article_text
+        title = meta.get("title", "")
+        short_repr = f"[Link] {title}\nURL: {url}" if title else f"[Link] {url}"
 
         return NormalizedItem(
             received_at=raw.received_at,
-            text=text,
+            text=short_repr,
             source_kind="link",
             source_meta=meta,
             telegram_user_id=raw.telegram_user_id,
