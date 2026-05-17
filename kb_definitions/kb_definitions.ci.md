@@ -44,7 +44,7 @@ kbs:
 
   - slug: work-ml
     name: Work / ML
-    active: true
+    active: false
     description: |
       Machine learning research, work notes, papers, experiments, professional learning.
     entities:
