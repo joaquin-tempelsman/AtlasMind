@@ -248,6 +248,36 @@ async def ingest(
     return {"summary": _extract_finalize_summary(result)}
 
 
+async def _resume_agent(agent: object, answer: str, config: dict) -> dict:
+    """Resume a HITL-interrupted agent with the user's answer.
+
+    LangChain's create_agent injects Command(resume=...) as a HumanMessage, which
+    breaks OpenAI's requirement that every tool_call be followed by a ToolMessage.
+    Instead, we find the pending ask_user tool_call_id in the checkpoint and inject
+    a proper ToolMessage directly before continuing.
+    """
+    state = await agent.aget_state(config)
+    messages = state.values.get("messages", [])
+
+    pending_id = None
+    for msg in reversed(messages):
+        for tc in getattr(msg, "tool_calls", []):
+            if tc.get("name") == "ask_user":
+                pending_id = tc.get("id")
+                break
+        if pending_id:
+            break
+
+    if pending_id:
+        tool_msg = ToolMessage(content=answer, tool_call_id=pending_id)
+        await agent.aupdate_state(config, {"messages": [tool_msg]}, as_node="tools")
+        result = await agent.ainvoke(None, config=config)
+    else:
+        result = await agent.ainvoke(Command(resume=answer), config=config)
+
+    return result
+
+
 async def resume_ingest(
     answer: str,
     vault_root: Path,
@@ -258,7 +288,7 @@ async def resume_ingest(
     """Resume a paused KB ingestion after HITL answer. Same return shape as ingest()."""
     agent = get_agent(vault_root, kb_slug, model)
     config = {"configurable": {"thread_id": thread_id}}
-    result = await agent.ainvoke(Command(resume=answer), config=config)
+    result = await _resume_agent(agent, answer, config)
     if "__interrupt__" in result:
         question = result["__interrupt__"][0].value.get("question", "")
         return {"interrupt_question": question}

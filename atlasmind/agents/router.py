@@ -10,6 +10,7 @@ from pathlib import Path
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
@@ -96,6 +97,34 @@ async def route(
     return _last_route(vault_root)
 
 
+async def _resume_agent(agent: object, answer: str, config: dict) -> dict:
+    """Inject a ToolMessage for the pending ask_user call instead of a HumanMessage.
+
+    create_agent's Command(resume=...) injects the answer as a HumanMessage, which
+    violates OpenAI's rule that every tool_call must be followed by a ToolMessage.
+    """
+    state = await agent.aget_state(config)
+    messages = state.values.get("messages", [])
+
+    pending_id = None
+    for msg in reversed(messages):
+        for tc in getattr(msg, "tool_calls", []):
+            if tc.get("name") == "ask_user":
+                pending_id = tc.get("id")
+                break
+        if pending_id:
+            break
+
+    if pending_id:
+        tool_msg = ToolMessage(content=answer, tool_call_id=pending_id)
+        await agent.aupdate_state(config, {"messages": [tool_msg]}, as_node="tools")
+        result = await agent.ainvoke(None, config=config)
+    else:
+        result = await agent.ainvoke(Command(resume=answer), config=config)
+
+    return result
+
+
 async def resume_route(
     answer: str,
     vault_root: Path,
@@ -105,7 +134,7 @@ async def resume_route(
     """Resume a paused router after HITL answer. Same return shape as route()."""
     agent = get_agent(vault_root, model)
     config = {"configurable": {"thread_id": thread_id}}
-    result = await agent.ainvoke(Command(resume=answer), config=config)
+    result = await _resume_agent(agent, answer, config)
     if "__interrupt__" in result:
         question = result["__interrupt__"][0].value.get("question", "")
         return {"interrupt_question": question}
