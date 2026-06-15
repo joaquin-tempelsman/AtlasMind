@@ -30,6 +30,30 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #10 — Persist verbatim raw input to raw/captures/
+**Date:** 2026-06-15
+**Branch:** feat/raw-capture
+**Layer(s):** ingestion, vault.paths, bootstrap, agents.kb_ingestion
+**Spec:** [01_architecture.md §3](../dev_specs/01_architecture.md), [06_kb_contract.md §6](../dev_specs/06_kb_contract.md)
+
+### What changed
+- `vault/paths.py` — `raw_capture_filename(received_at, text)` → `raw/captures/<ts>__<sha1(text)[:12]>.md` (deterministic, mirrors `link_html_filename`)
+- `ingestion/normalize.py` — `_persist_raw_capture()` writes the verbatim text/voice input (original language, untranslated) with provenance frontmatter; records `source_meta["raw_capture_path"]`. No-op without `vault_root` or on empty/whitespace text.
+- `bootstrap.py` — scaffolds `raw/captures/` alongside `raw/links/`
+- `agents/kb_ingestion.py` — `_build_batch_message` surfaces the capture pointer so the agent records it in the note's `raw_capture` frontmatter
+
+### Contracts asserted
+- `tests/contract/test_kb_filesystem.py` — text/voice `normalize()` writes a `raw/captures/` file with verbatim body + `type: raw_capture` frontmatter and sets `source_meta["raw_capture_path"]`; bootstrap creates `raw/captures/`
+
+### Within-layer tests added
+- `tests/unit/test_paths.py` — `raw_capture_filename` structure + determinism
+- `tests/unit/test_normalize.py` — no capture without `vault_root`; verbatim (not stripped) body; voice kind; whitespace-only writes nothing
+- `tests/unit/test_kb_ingestion.py` — batch message surfaces pointer when present, omits when absent
+
+### Notes
+- Part A of the language-aware ingestion plan. Part B (per-KB `language` setting + translation) is the follow-up `feat/kb-language` PR and depends on this archive existing so notes can be translated without losing the source.
+- The capture stores the *unstripped* original text in the body; `NormalizedItem.text` remains the stripped canonical text the agents read.
+
 ## PR #9 — Phase 9: Lint agent (/lint Telegram command)
 **Date:** 2026-05-17
 **Branch:** feat/phase-9-lint-agent
