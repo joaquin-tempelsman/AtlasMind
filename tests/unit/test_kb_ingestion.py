@@ -229,3 +229,25 @@ def test_batch_message_no_entity_registry_section_when_missing(tmp_path: Path):
     msg = _build_batch_message(tmp_path, "personal-diary", [_routed()])
 
     assert "Entity Registry" not in msg
+
+
+@pytest.mark.unit
+def test_batch_message_surfaces_raw_capture_path(tmp_path: Path):
+    """_build_batch_message surfaces the raw_capture pointer so the agent can
+    record it in note frontmatter."""
+    bootstrap_run(vault_path=tmp_path)
+    routed = _routed()
+    routed.normalized.source_meta["raw_capture_path"] = "raw/captures/2026-05-04T12-00-00Z__abc123.md"
+
+    msg = _build_batch_message(tmp_path, "personal-diary", [routed])
+
+    assert "raw/captures/2026-05-04T12-00-00Z__abc123.md" in msg
+    assert "raw_capture" in msg
+
+
+@pytest.mark.unit
+def test_batch_message_no_raw_capture_line_when_absent(tmp_path: Path):
+    """No raw capture line when source_meta lacks raw_capture_path."""
+    bootstrap_run(vault_path=tmp_path)
+    msg = _build_batch_message(tmp_path, "personal-diary", [_routed()])
+    assert "Raw capture" not in msg

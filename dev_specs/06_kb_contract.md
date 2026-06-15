@@ -224,10 +224,38 @@ created_at: <ISO-8601 UTC>     # exact ingestion timestamp
 source_kind: voice | text | link
 source_meta:
   # whatever the ingestion layer captured: url, title, voice_file_id, etc.
+raw_capture: raw/captures/<ts>__<hash>.md   # pointer to the verbatim original (text/voice)
 ---
 ```
 
+`raw_capture` is the repo-relative path to the verbatim, original-language input that L1
+saved before any agent ran (see [`01_architecture.md` §3](01_architecture.md)). The agent
+copies the path it is given in the batch prompt into this field; it is present for `text`
+and `voice` notes, and omitted when no capture was written. It exists so the note body can
+be freely rewritten (e.g. translated into the KB's language) without losing the source.
+
 Per-KB extras (people, places, books, etc.) are added on top per `agent.md`. This is what enables Dataview queries post-v0 — but v0 just writes correct frontmatter and trusts the user.
+
+### `raw/captures/` — verbatim input archive
+
+A vault-level archive parallel to `raw/links/`. For every `text` and `voice` input, L1
+writes one file `raw/captures/<ts>__<hash>.md` containing minimal provenance frontmatter
+followed by the verbatim input text, in its original language:
+
+```markdown
+---
+type: raw_capture
+source_kind: voice
+received_at: 2026-05-02T14:25:03Z
+telegram_user_id: 12345
+---
+
+Hola, hoy me reuní con Ana en el café…
+```
+
+Filename convention (`atlasmind/vault/paths.py:raw_capture_filename`): `<ts>__<sha1(text)[:12]>.md`,
+where `<ts>` is the UTC `received_at` as `%Y-%m-%dT%H-%M-%SZ`. The archive is never
+translated and never edited by an agent — it is pure provenance.
 
 ---
 

@@ -67,3 +67,11 @@ def link_html_filename(received_at: datetime, url: str) -> str:
     # Dashes in time component so the filename is safe on all filesystems
     ts = received_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     return f"raw/links/{ts}__{sha}.html"
+
+
+def raw_capture_filename(received_at: datetime, text: str) -> str:
+    """Build the raw/captures filename for a verbatim text/voice input."""
+    sha = hashlib.sha1(text.encode()).hexdigest()[:12]
+    # Dashes in time component so the filename is safe on all filesystems
+    ts = received_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return f"raw/captures/{ts}__{sha}.md"

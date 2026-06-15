@@ -87,9 +87,17 @@ These are the only objects that cross layer boundaries in v0. Defined as plain P
 - received_at: datetime
 - text: str                         # the canonical text representation
 - source_kind: "voice" | "text" | "link"
-- source_meta: dict                 # {"url": ..., "title": ..., "duration_s": ...}
+- source_meta: dict                 # {"url": ..., "title": ..., "duration_s": ..., "raw_capture_path": ...}
 - telegram_user_id: int             # author/owner — single-tenant in v0
 ```
+
+**Raw capture (L1).** For `text` and `voice` inputs, L1 persists the verbatim text —
+in its original language, untranslated — to `raw/captures/<ts>__<hash>.md` in the vault
+(mirroring the `raw/links/` snapshot for `link` inputs) and records the repo-relative
+path in `source_meta["raw_capture_path"]`. This guarantees the user's original words
+survive even when the KB ingestion agent rewrites the note in another language (see
+[`06_kb_contract.md` §6](06_kb_contract.md)). `NormalizedItem.text` is unchanged — it
+still carries the original text the agents read.
 
 ### `RoutedItem` (L2 → L3)
 ```

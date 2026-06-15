@@ -10,7 +10,26 @@ from atlasmind.ingestion.link_fetcher import LinkFetcher
 from atlasmind.ingestion.transcriber import Transcriber
 from atlasmind.shared.types import NormalizedItem, RawMessage
 from atlasmind.vault import fs as vault_fs
-from atlasmind.vault.paths import link_html_filename
+from atlasmind.vault.paths import link_html_filename, raw_capture_filename
+
+
+def _persist_raw_capture(raw: RawMessage, meta: dict, vault_root: Path | None) -> None:
+    """Save the verbatim input to raw/captures/ (original language, untranslated).
+
+    Records the repo-relative path in meta["raw_capture_path"]. No-op when no
+    vault_root is given or the text is empty/whitespace.
+    """
+    text = raw.text or ""
+    if vault_root is None or not text.strip():
+        return
+    rel = raw_capture_filename(raw.received_at, text)
+    body = (
+        f"---\ntype: raw_capture\nsource_kind: {raw.kind}\n"
+        f"received_at: {raw.received_at.isoformat()}\n"
+        f"telegram_user_id: {raw.telegram_user_id}\n---\n\n{text}"
+    )
+    vault_fs.write_md(vault_root, rel, body)
+    meta["raw_capture_path"] = rel
 
 
 async def normalize(
@@ -24,6 +43,7 @@ async def normalize(
         meta: dict = {}
         if raw.linked_url:
             meta["linked_url"] = raw.linked_url
+        _persist_raw_capture(raw, meta, vault_root)
         return NormalizedItem(
             received_at=raw.received_at,
             text=(raw.text or "").strip(),
@@ -36,6 +56,7 @@ async def normalize(
         meta = {"voice_file_id": raw.voice_file_id}
         if raw.linked_url:
             meta["linked_url"] = raw.linked_url
+        _persist_raw_capture(raw, meta, vault_root)
         return NormalizedItem(
             received_at=raw.received_at,
             text=raw.text or "",

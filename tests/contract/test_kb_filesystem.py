@@ -6,12 +6,17 @@ that the vault satisfies the KB contract defined in dev_specs/06_kb_contract.md.
 from __future__ import annotations
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from atlasmind.bootstrap import run as bootstrap_run
+from atlasmind.ingestion.normalize import normalize
+from atlasmind.shared.types import RawMessage
 from atlasmind.vault import frontmatter as fm
+
+_NOW = datetime(2026, 5, 2, 14, 25, 3, tzinfo=timezone.utc)
 
 
 @pytest.mark.contract
@@ -60,6 +65,51 @@ def test_bootstrap_creates_raw_links_dir(tmp_path: Path):
     """raw/links/ directory is created."""
     bootstrap_run(vault_path=tmp_path)
     assert (tmp_path / "raw" / "links").is_dir()
+
+
+@pytest.mark.contract
+def test_bootstrap_creates_raw_captures_dir(tmp_path: Path):
+    """raw/captures/ directory is created (verbatim text/voice archive)."""
+    bootstrap_run(vault_path=tmp_path)
+    assert (tmp_path / "raw" / "captures").is_dir()
+
+
+@pytest.mark.contract
+async def test_normalize_text_writes_raw_capture(tmp_path: Path):
+    """normalize() of a text input persists the verbatim original to raw/captures/
+    and records the pointer in source_meta (06_kb_contract §6)."""
+    raw = RawMessage(
+        telegram_user_id=42, chat_id=1, received_at=_NOW, kind="text",
+        text="Hola, hoy me reuní con Ana en el café.",
+    )
+    item = await normalize(raw, vault_root=tmp_path)
+
+    rel = item.source_meta["raw_capture_path"]
+    assert rel.startswith("raw/captures/")
+    capture = tmp_path / rel
+    assert capture.exists()
+    meta, body = fm.parse_file(capture)
+    assert meta.get("type") == "raw_capture"
+    assert meta.get("source_kind") == "text"
+    # body is the verbatim original, in the original language
+    assert body.strip() == "Hola, hoy me reuní con Ana en el café."
+
+
+@pytest.mark.contract
+async def test_normalize_voice_writes_raw_capture(tmp_path: Path):
+    """normalize() of a voice transcript persists the verbatim original to raw/captures/."""
+    raw = RawMessage(
+        telegram_user_id=42, chat_id=1, received_at=_NOW, kind="voice",
+        text="transcripción en español", voice_file_id="file123",
+    )
+    item = await normalize(raw, vault_root=tmp_path)
+
+    rel = item.source_meta["raw_capture_path"]
+    capture = tmp_path / rel
+    assert capture.exists()
+    meta, body = fm.parse_file(capture)
+    assert meta.get("source_kind") == "voice"
+    assert body.strip() == "transcripción en español"
 
 
 @pytest.mark.contract

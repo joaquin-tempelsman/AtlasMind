@@ -173,9 +173,10 @@ def _generate_registry(vault: Path, kbs: list[dict]) -> None:
 
 
 def _scaffold_raw(vault: Path) -> None:
-    links_dir = vault / "raw" / "links"
-    links_dir.mkdir(parents=True, exist_ok=True)
-    (links_dir / ".gitkeep").touch()
+    for sub in ("links", "captures"):
+        d = vault / "raw" / sub
+        d.mkdir(parents=True, exist_ok=True)
+        (d / ".gitkeep").touch()
 
 
 def _initial_commit(vault: Path) -> None:

@@ -192,6 +192,13 @@ def _build_batch_message(vault_root: Path, kb_slug: str, items: list[RoutedItem]
         if linked_url:
             body = body + f"\n\n_This item is commentary on: {linked_url}_"
 
+        raw_capture = n.source_meta.get("raw_capture_path")
+        if raw_capture:
+            body = body + (
+                f"\n\n_Raw capture (verbatim original, original language): {raw_capture}_"
+                "\n_Record this path in the note's `raw_capture` frontmatter field._"
+            )
+
         item_blocks.append(f"{header}\n\n{body}")
 
     entities_path = vault_root / kb_slug / "entities.md"

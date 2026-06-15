@@ -69,6 +69,7 @@ kbs:
       created_at: ISO-8601-UTC
       source_kind: voice | text | link
       source_meta: {}
+      raw_capture: raw/captures/<ts>__<hash>.md   # verbatim original (text/voice), if provided
       people: []
       places: []
       ```
