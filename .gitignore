@@ -222,3 +222,6 @@ dev/.local_vault/
 
 # Personal KB configuration (use kb_definitions.example.md as the public template)
 kb_definitions/kb_definitions.md
+
+# Deploy stamp written on the droplet by the deploy workflow
+.deploy_stamp
