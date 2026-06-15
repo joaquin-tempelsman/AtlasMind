@@ -10,6 +10,7 @@ from atlasmind.vault.paths import (
     entity_path,
     note_filename,
     note_path,
+    raw_capture_filename,
     resolve_note_path,
     slugify,
     validate_kb_slug,
@@ -110,3 +111,18 @@ def test_link_html_filename():
     assert filename.startswith("raw/links/")
     assert filename.endswith(".html")
     assert "2026-05-02" in filename
+
+
+@pytest.mark.unit
+class TestRawCaptureFilename:
+    def test_structure(self):
+        filename = raw_capture_filename(_DT, "Hola mundo")
+        assert filename.startswith("raw/captures/")
+        assert filename.endswith(".md")
+        assert "2026-05-02T14-25-03Z" in filename
+
+    def test_deterministic(self):
+        assert raw_capture_filename(_DT, "same text") == raw_capture_filename(_DT, "same text")
+
+    def test_different_text_differs(self):
+        assert raw_capture_filename(_DT, "one") != raw_capture_filename(_DT, "two")

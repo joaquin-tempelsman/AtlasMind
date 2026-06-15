@@ -154,7 +154,53 @@ async def test_normalize_text_with_linked_url():
 
 @pytest.mark.unit
 async def test_normalize_text_without_linked_url():
-    """text without linked_url: source_meta is empty."""
+    """text without linked_url: source_meta is empty (no capture without vault_root)."""
     raw = _raw(kind="text", text="Plain text")
     item = await normalize(raw)
     assert item.source_meta == {}
+
+
+# ── raw capture ────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+async def test_normalize_no_capture_without_vault_root():
+    """No raw_capture_path when vault_root is None."""
+    raw = _raw(kind="text", text="Hola mundo")
+    item = await normalize(raw)
+    assert "raw_capture_path" not in item.source_meta
+
+
+@pytest.mark.unit
+async def test_normalize_text_capture_is_verbatim(tmp_path: Path):
+    """The capture file body equals the input text byte-for-byte (untranslated)."""
+    raw = _raw(kind="text", text="  Hola, ¿qué tal?  ")
+    item = await normalize(raw, vault_root=tmp_path)
+    rel = item.source_meta["raw_capture_path"]
+    saved = (tmp_path / rel).read_text(encoding="utf-8")
+    # frontmatter + verbatim original (not the stripped NormalizedItem.text)
+    assert saved.endswith("\n\n  Hola, ¿qué tal?  ")
+    assert "type: raw_capture" in saved
+    # NormalizedItem.text is still the stripped canonical text
+    assert item.text == "Hola, ¿qué tal?"
+
+
+@pytest.mark.unit
+async def test_normalize_voice_capture(tmp_path: Path):
+    """Voice transcript is captured with source_kind=voice."""
+    raw = _raw(kind="voice", text="transcripción", voice_file_id="f1")
+    item = await normalize(raw, vault_root=tmp_path)
+    rel = item.source_meta["raw_capture_path"]
+    saved = (tmp_path / rel).read_text(encoding="utf-8")
+    assert "source_kind: voice" in saved
+    assert saved.endswith("transcripción")
+
+
+@pytest.mark.unit
+async def test_normalize_empty_text_no_capture(tmp_path: Path):
+    """Whitespace-only text writes no capture file."""
+    raw = _raw(kind="text", text="   ")
+    item = await normalize(raw, vault_root=tmp_path)
+    assert "raw_capture_path" not in item.source_meta
+    assert not (tmp_path / "raw" / "captures").exists() or not any(
+        (tmp_path / "raw" / "captures").glob("*.md")
+    )
