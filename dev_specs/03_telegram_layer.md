@@ -20,6 +20,13 @@ edge/
 └── session.py          # in-memory map: telegram_user_id → active session metadata
 ```
 
+## Commands
+
+Slash commands are wired as `CommandHandler` instances in `telegram_app.py` and handled in `handlers.py`. All commands pass through `_auth_guard` (allowlist) first.
+
+- **`/lint <kb_slug>`** — runs a structural audit on a KB (see [`05_agent_layer.md` §4](05_agent_layer.md)).
+- **`/version`** — replies with the currently-deployed code version: short git commit SHA, the commit subject and date, and (if present) the deploy stamp written by the deploy workflow. Read-only and synchronous; reads git metadata of the running checkout via `atlasmind/version.py`. This is the operator's confirmation that a deploy landed — the reported SHA should match `main`'s HEAD after a successful deploy.
+
 ## Learnings lifted from talkvault
 
 These are validated patterns from [`bot/handlers.py`](https://github.com/joaquin-tempelsman/talkvault/blob/main/bot/handlers.py) and [`bot/main.py`](https://github.com/joaquin-tempelsman/talkvault/blob/main/bot/main.py). Re-use them; do not re-derive them.
