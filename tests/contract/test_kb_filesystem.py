@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from atlasmind.agents.tools.kb_meta import _parse_registry
 from atlasmind.bootstrap import run as bootstrap_run
 from atlasmind.ingestion.normalize import normalize
 from atlasmind.shared.types import RawMessage
@@ -72,6 +73,19 @@ def test_bootstrap_creates_raw_captures_dir(tmp_path: Path):
     """raw/captures/ directory is created (verbatim text/voice archive)."""
     bootstrap_run(vault_path=tmp_path)
     assert (tmp_path / "raw" / "captures").is_dir()
+
+
+@pytest.mark.contract
+def test_kb_language_round_trips_to_registry(tmp_path: Path):
+    """A KB with `language` set round-trips through bootstrap → registry → _parse_registry.
+    A KB without `language` has no language key (06_kb_contract §2)."""
+    bootstrap_run(vault_path=tmp_path)
+    entries = {e["slug"]: e for e in _parse_registry(tmp_path)}
+
+    # econ-politics declares language: English in the CI fixture
+    assert entries["econ-politics"]["language"] == "English"
+    # personal-diary declares no language → key absent (unset = preserve input language)
+    assert "language" not in entries["personal-diary"]
 
 
 @pytest.mark.contract

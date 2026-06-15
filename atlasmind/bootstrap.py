@@ -159,6 +159,9 @@ def _generate_registry(vault: Path, kbs: list[dict]) -> None:
         url_fields = kb.get("url_metadata_fields") or []
         lines.append(f"- **URL metadata fields:** {', '.join(url_fields)}")
         lines.append(f"- **Include article content:** {str(kb.get('include_article_content', False)).lower()}")
+        # Emit Language only when set, so "unset" (preserve input language) stays distinct.
+        if kb.get("language"):
+            lines.append(f"- **Language:** {kb['language']}")
         lines.append("")
 
     meta = vault / "_meta"

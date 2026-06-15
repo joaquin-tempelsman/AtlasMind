@@ -41,6 +41,7 @@ kbs:
       - topics
     breathing: false
     ingest_delay_minutes: 5
+    language: English
 
   - slug: work-ml
     name: Work / ML

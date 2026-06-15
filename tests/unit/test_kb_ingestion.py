@@ -154,6 +154,27 @@ def test_breathing_enabled_when_flag_set(tmp_path: Path):
 
 
 @pytest.mark.unit
+def test_language_addon_absent_when_unset(tmp_path: Path):
+    """No output-language instruction when the KB has no language set."""
+    bootstrap_run(vault_path=tmp_path)
+    # personal-diary has no language in the CI fixture
+    prompt = kb_ingestion._build_system_prompt(tmp_path, "personal-diary")
+    assert "Output language" not in prompt
+
+
+@pytest.mark.unit
+def test_language_addon_present_when_set(tmp_path: Path):
+    """Output-language instruction names the configured language when set."""
+    bootstrap_run(vault_path=tmp_path)
+    # econ-politics is configured with language: English in the CI fixture
+    prompt = kb_ingestion._build_system_prompt(tmp_path, "econ-politics")
+    assert "Output language" in prompt
+    assert "English" in prompt
+    # finalize summary carve-out is included
+    assert "finalize() summary" in prompt
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_kb_agent_is_cached(tmp_path: Path):
     """Two calls to get_agent with same (vault_root, kb_slug) return same object."""
