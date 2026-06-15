@@ -30,6 +30,28 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #12 — /version command + deploy health check & logs
+**Date:** 2026-06-15
+**Branch:** feat/version-command
+**Layer(s):** edge.handlers, edge.telegram_app, ci/cd
+**Spec:** [03_telegram_layer.md](../dev_specs/03_telegram_layer.md)
+
+### What changed
+- `atlasmind/version.py` — `get_version_info()` / `format_version()` read the running checkout's git short SHA, commit subject/date, and an optional `.deploy_stamp`; graceful (returns "unknown") when git metadata is absent
+- `/version` Telegram command: `handle_version` in `edge/handlers.py` + `CommandHandler("version", …)` in `telegram_app.py`
+- `deploy.yml` — `set -e`, writes `.deploy_stamp` (sha + UTC time) after pull, then a post-restart health gate (`systemctl is-active atlasmind` — fails the deploy if the bot didn't come up) and a `journalctl -u atlasmind -n 40` tail in the deploy log
+- `.gitignore` — `.deploy_stamp` (written on the droplet; must not block `git pull`)
+
+### Contracts asserted
+- (none cross-layer — edge command; spec documents behavior in 03_telegram_layer.md)
+
+### Within-layer tests added
+- `tests/unit/test_version.py` — git sha/subject/date from a tmp repo; deploy-stamp read; graceful None without git; `format_version` content + unknown fallback
+
+### Notes
+- First deploy with the new gate confirmed `active` and wrote stamp `db6aced | deployed 2026-06-15T05:32:41Z`.
+- The deploy log tail surfaced a transient pre-deploy `telegram.error.NetworkError: Bad Gateway` (~01:10 UTC); the current restart started cleanly. Worth watching if it recurs.
+
 ## PR #11 — Per-KB output language setting
 **Date:** 2026-06-15
 **Branch:** feat/kb-language

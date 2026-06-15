@@ -177,6 +177,7 @@ One line per merged feature, newest at top.
 > `<PR#> | YYYY-MM-DD | layer(s) | one-line description`
 
 <!-- BEGIN: feature index -->
+#12 | 2026-06-15 | edge.handlers, edge.telegram_app, ci/cd | /version command (deployed git sha/subject/date + deploy stamp); deploy health gate (systemctl is-active) + journalctl log tail
 #11 | 2026-06-15 | bootstrap, agents.kb_ingestion | Per-KB output language setting (translate all wiki content; preserve proper nouns/links; finalize summary stays in input language)
 #10 | 2026-06-15 | ingestion, vault.paths, bootstrap, agents.kb_ingestion | Persist verbatim raw input (original language) to raw/captures/ + note raw_capture pointer
 #9 | 2026-05-17 | agents.lint, agents.tools, edge.handlers | Phase 9: lint agent (/lint command), orphan/missing-link/duplicate checks, finalize_lint
