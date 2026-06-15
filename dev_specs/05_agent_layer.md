@@ -181,6 +181,26 @@ This is intentionally tiny. Enable it per KB once the vault has enough content f
 
 When to enable: edit `kb_definitions.md` and set `breathing: true` for that KB. No code change needed; the agent checks the flag at runtime.
 
+### Output language — opt-in per KB
+
+A per-KB `language` setting (natural-language name, e.g. `Spanish`) controls the language of
+everything the agent **writes into the KB**. When set, a language addon is appended to the
+system prompt instructing the agent to write all wiki content — note titles and bodies,
+`index.md` lines, entity-page prose, and any callouts/summaries — in that language,
+translating the input as it files it. When unset (default), no addon is added and the note
+is written in the input's own language (prior behavior).
+
+Two boundaries matter:
+
+- **Proper nouns and `[[wiki-link]]` targets are never translated** — people, place, and
+  work titles stay as written so links and entity pages remain consistent.
+- **The `finalize(summary_for_user)` text is NOT wiki content** — it is the Telegram reply
+  to the user and is written in the language of the user's input, not the KB language.
+
+The verbatim original input is always preserved in `raw/captures/` (see
+[`06_kb_contract.md` §6](06_kb_contract.md)), so translating the note never loses the
+source. Like breathing, this is a runtime flag — edit `kb_definitions.md`, no code change.
+
 ### Tools available to the KB ingestion agent
 
 All tools are **scoped to the KB folder** at construction time. The agent literally cannot read or write outside its KB (paths are validated). This is the most important property of the layer.

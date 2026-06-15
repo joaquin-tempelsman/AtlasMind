@@ -65,6 +65,22 @@ to another existing page in this KB, append a `> [!note] Related` callout to the
 new note pointing at it. If nothing notable, skip. Do NOT restructure anything.\
 """
 
+_LANGUAGE_ADDON = """\
+
+## Output language (enforced for this KB)
+
+Write ALL wiki content for this KB in {language}: note H1 titles and bodies, index.md
+lines, entity-page prose, and any callouts/summaries you add to pages. If an input arrives
+in another language, translate its content into {language} as you file it.
+
+- Preserve proper nouns unchanged: people, place, and work titles, and any [[wiki-link]]
+  targets — do not translate names.
+- The user's verbatim original is preserved in raw/captures/ (see the note's raw_capture
+  frontmatter), so translating the wiki note loses nothing.
+- The finalize() summary you send back to the user is NOT wiki content — write it in the
+  language of the user's input, not {language}.\
+"""
+
 _URL_METADATA_ADDON = """\
 
 ## URL metadata extraction (enabled for this KB)
@@ -103,6 +119,7 @@ def _build_system_prompt(vault_root: Path, kb_slug: str) -> str:
     kb_entry = next((e for e in entries if e["slug"] == kb_slug), {})
     breathing = kb_entry.get("breathing", "false") == "true"
     url_fields = _parse_url_metadata_fields(kb_entry)
+    language = kb_entry.get("language", "").strip()
 
     workflow = _STANDARD_WORKFLOW + _ENTITY_RESOLUTION_ADDON + (_BREATHING_ADDON if breathing else "")
     if url_fields:
@@ -111,6 +128,8 @@ def _build_system_prompt(vault_root: Path, kb_slug: str) -> str:
             fields=", ".join(url_fields),
             fields_repr=fields_repr,
         )
+    if language:
+        workflow += _LANGUAGE_ADDON.format(language=language)
 
     return _PROMPT_TEMPLATE.format(kb_agent_md=kb_agent_md, standard_workflow=workflow)
 

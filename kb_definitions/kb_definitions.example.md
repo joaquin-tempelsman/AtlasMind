@@ -35,6 +35,10 @@ kbs:
     # Optional: batching window
     ingest_delay_minutes: 5           # items are batched for this many minutes before the agent runs
 
+    # Optional: output language
+    # language: Spanish               # all wiki content for this KB is written in this language
+                                      # (input is translated as it's filed). Omit to keep the input's language.
+
     # Optional: agent.md template override
     # If omitted, bootstrap uses the default template from atlasmind/agents/prompts/agent_md_default.md
     # If provided, this text becomes the starting content of <slug>/agent.md in the vault.
@@ -132,6 +136,7 @@ kbs:
 | `kindle_sync` | bool | no | `false` | Kindle API highlight import — v0+1 feature, per-KB flag |
 | `breathing` | bool | no | `false` | Thin reflection pass after each ingest. Enable when vault matures. |
 | `ingest_delay_minutes` | int | no | `5` | Debounce window (minutes) before batch ingest fires |
+| `language` | string | no | unset | Natural-language name (e.g. `Spanish`). All wiki content for this KB is written in this language; input is translated as filed. Unset → input's own language. |
 | `agent_md` | string | no | default template | Initial content of `<slug>/agent.md`. User can edit freely after bootstrap. |
 
 ## Adding a new KB after initial setup
