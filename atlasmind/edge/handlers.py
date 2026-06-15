@@ -187,6 +187,15 @@ async def handle_lint(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Lint failed: {exc}")
 
 
+async def handle_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /version — reply with the currently-deployed code version."""
+    if not await _auth_guard(update):
+        return
+    from atlasmind.version import format_version
+
+    await update.message.reply_text(format_version())
+
+
 async def _dispatch_result(
     update: Update, user_id: int, thread_id: str, result: dict,
     link_url: str | None = None,

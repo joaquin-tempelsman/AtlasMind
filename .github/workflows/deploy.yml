@@ -42,8 +42,15 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
+            set -e
             cd ~/AtlasMind
             git pull origin main
             .venv/bin/pip install -e ".[dev]" --quiet
+            printf '%s | deployed %s\n' "$(git rev-parse --short HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .deploy_stamp
             sudo systemctl restart atlasmind
-            echo "Deploy complete"
+            sleep 3
+            echo "=== service status ==="
+            systemctl is-active atlasmind
+            echo "=== recent logs ==="
+            sudo journalctl -u atlasmind -n 40 --no-pager
+            echo "Deploy complete: $(cat .deploy_stamp)"
