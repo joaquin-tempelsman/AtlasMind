@@ -177,6 +177,7 @@ One line per merged feature, newest at top.
 > `<PR#> | YYYY-MM-DD | layer(s) | one-line description`
 
 <!-- BEGIN: feature index -->
+#11 | 2026-06-15 | bootstrap, agents.kb_ingestion | Per-KB output language setting (translate all wiki content; preserve proper nouns/links; finalize summary stays in input language)
 #10 | 2026-06-15 | ingestion, vault.paths, bootstrap, agents.kb_ingestion | Persist verbatim raw input (original language) to raw/captures/ + note raw_capture pointer
 #9 | 2026-05-17 | agents.lint, agents.tools, edge.handlers | Phase 9: lint agent (/lint command), orphan/missing-link/duplicate checks, finalize_lint
 #8 | 2026-05-17 | agents.kb_ingestion, agents.tools, bootstrap | Phase 8: entity alias registry (entities.md), register_entity tool, alias resolution in agent

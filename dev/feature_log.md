@@ -30,6 +30,29 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #11 — Per-KB output language setting
+**Date:** 2026-06-15
+**Branch:** feat/kb-language
+**Layer(s):** bootstrap, agents.kb_ingestion
+**Spec:** [06_kb_contract.md §2](../dev_specs/06_kb_contract.md), [05_agent_layer.md §3](../dev_specs/05_agent_layer.md)
+
+### What changed
+- KB definitions gain an optional `language` field (natural-language name, e.g. `Spanish`)
+- `bootstrap._generate_registry` emits `- **Language:** <name>` only when set (unset stays distinct from a default)
+- `kb_ingestion._LANGUAGE_ADDON` appended to the system prompt when the registry sets a language — instructs the agent to write all wiki content (titles, bodies, index, entity prose, summaries) in that language, translating input, while preserving proper nouns and `[[wiki-link]]` targets
+- `finalize()` summary explicitly carved out — stays in the input language
+- `kb_definitions.example.md` documents the field; `kb_definitions.ci.md` gives `econ-politics` `language: English` as the round-trip fixture
+
+### Contracts asserted
+- `tests/contract/test_kb_filesystem.py` — `language` round-trips definition → bootstrap → registry → `_parse_registry`; KB without it has no `language` key
+
+### Within-layer tests added
+- `tests/unit/test_kb_ingestion.py` — `_build_system_prompt` includes the language instruction (named language + finalize carve-out) when set, omits it when unset
+
+### Notes
+- Part B of the language-aware ingestion plan; depends on PR #10's `raw/captures/` archive so translation never loses the source.
+- Same runtime-flag mechanism as breathing / URL-metadata addons — edit `kb_definitions.md`, restart, no code change.
+
 ## PR #10 — Persist verbatim raw input to raw/captures/
 **Date:** 2026-06-15
 **Branch:** feat/raw-capture
