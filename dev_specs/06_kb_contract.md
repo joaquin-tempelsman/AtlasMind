@@ -55,9 +55,19 @@ Each entry in `kb_definitions.md`:
   ingest_delay_minutes: 5        # debounce window before batch ingest fires (default 5)
   url_metadata_fields: []        # LLM-extracted URL metadata fields (e.g. [media_source, article_writer])
   include_article_content: false # forward full article text to KB agent (default false — keeps context lean)
+  language: Spanish              # natural-language name; all wiki content written in this language (default: unset → input language)
 ```
 
 All fields except `slug`, `name`, `description`, and `active` have defaults and are optional.
+
+`language` sets the language of everything the KB ingestion agent writes into this KB:
+note titles and bodies, `index.md` lines, entity-page prose, and summaries. When an input
+arrives in another language, the agent translates the content as it files it. The value is
+a natural-language name (`English`, `Spanish`, `español`) passed verbatim into the agent's
+system prompt. When **unset** (default), no translation instruction is added and the note
+is written in the input's own language — preserving prior behavior. Proper nouns and
+`[[wiki-link]]` targets are never translated, and the verbatim original is always preserved
+in `raw/captures/` (see §6), so translation loses nothing.
 
 `url_metadata_fields` controls which structured metadata the KB ingestion agent extracts from linked articles via an LLM call. The agent calls `extract_url_metadata(url, fields)` for any link item or voice/text item with a `linked_url`. If the list is empty, no metadata extraction is performed.
 
@@ -85,6 +95,7 @@ generated_from: kb_definitions/kb_definitions.md
 - **Ingest delay (min):** 5
 - **URL metadata fields:** 
 - **Include article content:** false
+- **Language:** Spanish
 
 ## reflections
 - **Name:** Reflections
