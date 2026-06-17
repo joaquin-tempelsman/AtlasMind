@@ -30,6 +30,30 @@ Entry template:
 
 <!-- entries go below, newest at top -->
 
+## PR #14 — Pre-commit batch amendment (hold-space corrections)
+**Date:** 2026-06-17
+**Branch:** feat/batch-amendment
+**Layer(s):** agents.amendment, pipeline
+**Spec:** [05_agent_layer.md §3.5](../dev_specs/05_agent_layer.md), [03_telegram_layer.md](../dev_specs/03_telegram_layer.md)
+
+### What changed
+- New `atlasmind/agents/amendment.py`: `classify_amendment(pending, new_text)` — a stateless claude-haiku call that decides whether an incoming message is a new item or a correction of one already queued. Fail-safe to `{"kind": "new"}` on empty/ambiguous/parse-error/out-of-range.
+- Pipeline: when a batch is pending, `process()` runs the classifier before routing; a `modification` is proposed over the existing HITL interrupt path instead of being enqueued. `resume()` checks `_pending_amendments` first — an affirmative free-text reply rewrites the queued item's text in place, a negative leaves it untouched.
+- Added `_arm_timer` (shared debounce re-arm), `_pending_items_for_user`, `_format_batch`, `_propose_amendment`, `_resolve_amendment`, `_is_affirmative` (EN/ES). Timer re-arms on every message and amendment.
+
+### Contracts asserted
+- `tests/contract/test_amendment.py` — classifier output shapes (new / modification / fenced-JSON / empty-pending short-circuit / bad-JSON fail-safe / out-of-range fail-safe), covers dev_specs/05 §3.5.
+- `tests/contract/test_pipeline.py` — `process` modification → interrupt + not enqueued; `resume` yes → rewrite; `resume` no → unchanged.
+
+### Within-layer tests added
+- `tests/unit/test_pipeline.py` — `_is_affirmative` (parametrized EN/ES), `_pending_items_for_user` flattening, reject-keeps-batch path.
+
+### Notes
+- Apply method is **rewrite queued text** (chosen over attach-note): the verbatim `raw/captures/` archive still holds the original, but the queued text the ingestion agent sees is overwritten.
+- Race guard: if the batch already flushed while awaiting the yes/no, `_resolve_amendment` replies "already processed — send it again."
+- Hardened two pre-existing queue tests: message 2 now passes through the classifier (mock it to `new`); `test_ingest_queue_fires_after_delay` stubs `_vault_commit` to isolate the queue→ingest→reply contract from real-git timing (was a latent local flake).
+- Single-tenant v0 assumption: `_pending_items_for_user` flattens all queues (one user). Multi-tenant will need per-user scoping.
+
 ## PR #12 — /version command + deploy health check & logs
 **Date:** 2026-06-15
 **Branch:** feat/version-command
