@@ -142,6 +142,10 @@ async def test_ingest_queue_fires_after_delay(tmp_path: Path):
             "confidence": "high",
         })),
         patch("atlasmind.pipeline.ingest", new=fake_ingest),
+        # Stub the real git commit so this test isolates the queue→ingest→reply
+        # contract from git I/O timing (a real pull/commit/push can outlive the
+        # post-fire sleep window).
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: None),
     ):
         pipeline = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.05, reply_fn=fake_reply)
         await pipeline.process(_raw(user_id=1), thread_id="t-4")
@@ -177,6 +181,11 @@ async def test_ingest_queue_batches_multiple_items(tmp_path: Path):
             "confidence": "high",
         })),
         patch("atlasmind.pipeline.ingest", new=fake_ingest),
+        # Message 2 lands while message 1 is pending, so it now passes through the
+        # amendment classifier. Force "new" so both items batch (no real API call).
+        patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(
+            return_value={"kind": "new"}
+        )),
     ):
         pipeline = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.1)
         await pipeline.process(_raw(text="Msg 1", user_id=1), thread_id="t-5a")
@@ -185,3 +194,106 @@ async def test_ingest_queue_batches_multiple_items(tmp_path: Path):
 
     assert len(ingested) == 1, f"Expected 1 batch, got {len(ingested)}"
     assert len(ingested[0]) == 2
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_amendment_modification_interrupts_and_does_not_enqueue(tmp_path: Path):
+    """A message classified as a modification proposes a change and is NOT enqueued."""
+    bootstrap_run(vault_path=tmp_path)
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(
+            return_value=_routed(text="Met Pablou.").normalized
+        )),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary",
+            "rationale": "Test.",
+            "confidence": "high",
+        })),
+    ):
+        pipeline = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        # First message — routes and enqueues normally (no pending batch yet).
+        first = await pipeline.process(_raw(text="Met Pablou.", user_id=1), thread_id="t-am1")
+        assert "reply" in first
+        assert len(pipeline._queues["personal-diary"]) == 1
+
+        # Second message — classifier says it corrects item 0.
+        with patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(return_value={
+            "kind": "modification",
+            "target_index": 0,
+            "new_text": "Met Pablo.",
+            "rationale": "typo",
+        })):
+            second = await pipeline.process(
+                _raw(text="I meant Pablo.", user_id=1), thread_id="t-am1"
+            )
+
+    assert "interrupt_question" in second
+    # Still one queued item, text unchanged until the user accepts.
+    assert len(pipeline._queues["personal-diary"]) == 1
+    assert pipeline._queues["personal-diary"][0].normalized.text == "Met Pablou."
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_amendment_accept_rewrites_queued_text(tmp_path: Path):
+    """Replying yes to a proposed amendment rewrites the queued item's text."""
+    bootstrap_run(vault_path=tmp_path)
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(
+            return_value=_routed(text="Met Pablou.").normalized
+        )),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary",
+            "rationale": "Test.",
+            "confidence": "high",
+        })),
+    ):
+        pipeline = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        await pipeline.process(_raw(text="Met Pablou.", user_id=1), thread_id="t-am2")
+        with patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(return_value={
+            "kind": "modification",
+            "target_index": 0,
+            "new_text": "Met Pablo.",
+            "rationale": "typo",
+        })):
+            await pipeline.process(_raw(text="I meant Pablo.", user_id=1), thread_id="t-am2")
+
+        result = await pipeline.resume(thread_id="t-am2", answer="yes", user_id=1)
+
+    assert "reply" in result
+    assert pipeline._queues["personal-diary"][0].normalized.text == "Met Pablo."
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_amendment_reject_leaves_batch_unchanged(tmp_path: Path):
+    """Replying no to a proposed amendment leaves the queued item untouched."""
+    bootstrap_run(vault_path=tmp_path)
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(
+            return_value=_routed(text="Met Pablou.").normalized
+        )),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary",
+            "rationale": "Test.",
+            "confidence": "high",
+        })),
+    ):
+        pipeline = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        await pipeline.process(_raw(text="Met Pablou.", user_id=1), thread_id="t-am3")
+        with patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(return_value={
+            "kind": "modification",
+            "target_index": 0,
+            "new_text": "Met Pablo.",
+            "rationale": "typo",
+        })):
+            await pipeline.process(_raw(text="I meant Pablo.", user_id=1), thread_id="t-am3")
+
+        result = await pipeline.resume(thread_id="t-am3", answer="no", user_id=1)
+
+    assert "reply" in result
+    assert pipeline._queues["personal-diary"][0].normalized.text == "Met Pablou."

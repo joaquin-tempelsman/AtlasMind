@@ -20,6 +20,7 @@ import logging
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from atlasmind.agents.amendment import classify_amendment
 from atlasmind.agents.kb_ingestion import ingest, resume_ingest
 from atlasmind.agents.router import route, resume_route
 from atlasmind.ingestion.normalize import normalize
@@ -54,6 +55,10 @@ class Pipeline:
         # Tracks kb-ingestion-interrupted sessions: thread_id → (kb_slug, user_id)
         self._pending_ingest: dict[str, tuple[str, int]] = {}
 
+        # Tracks proposed batch amendments awaiting yes/no:
+        # thread_id → {kb_slug, item_index, old_text, new_text}
+        self._pending_amendments: dict[str, dict] = {}
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -68,6 +73,24 @@ class Pipeline:
         except Exception as exc:
             logger.exception("normalize failed: %s", exc)
             return {"error": str(exc)}
+
+        user_id = raw.telegram_user_id
+
+        # If a batch is already pending, this message might be a correction of a
+        # queued item rather than a new one. Classify before routing.
+        pending = self._pending_items_for_user(user_id)
+        if pending:
+            try:
+                verdict = await classify_amendment(
+                    pending=[item.text for _slug, _idx, item in pending],
+                    new_text=normalized.text,
+                )
+            except Exception as exc:
+                logger.exception("classify_amendment failed: %s", exc)
+                verdict = {"kind": "new"}
+
+            if verdict.get("kind") == "modification":
+                return self._propose_amendment(thread_id, user_id, pending, verdict)
 
         try:
             route_result = await route(normalized, self.vault_root, thread_id)
@@ -92,6 +115,10 @@ class Pipeline:
 
         Returns {"reply"}, {"interrupt_question"}, or {"error"}.
         """
+        # Check if we're confirming a proposed batch amendment
+        if thread_id in self._pending_amendments:
+            return self._resolve_amendment(thread_id, answer, user_id)
+
         # Check if we're in a router interrupt
         if thread_id in self._pending_route:
             normalized = self._pending_route.pop(thread_id)
@@ -158,7 +185,13 @@ class Pipeline:
             self._queues[kb_slug] = []
         self._queues[kb_slug].append(routed)
 
-        # Reset the debounce timer
+        self._arm_timer(kb_slug, user_id)
+
+        kb_display = kb_slug.replace("-", " ").title()
+        return {"reply": f"Routed to {kb_display} — will ingest shortly."}
+
+    def _arm_timer(self, kb_slug: str, user_id: int) -> None:
+        """(Re)start the debounce timer for a KB — resets the quiet window."""
         if kb_slug in self._timers:
             self._timers[kb_slug].cancel()
 
@@ -170,8 +203,77 @@ class Pipeline:
             ),
         )
 
-        kb_display = kb_slug.replace("-", " ").title()
-        return {"reply": f"Routed to {kb_display} — will ingest shortly."}
+    # ------------------------------------------------------------------
+    # Batch amendment helpers
+    # ------------------------------------------------------------------
+
+    def _pending_items_for_user(self, user_id: int):
+        """Flatten the queues into a numbered list of pending items for the user.
+
+        Single-tenant in v0: every queued item belongs to the one user. Returns
+        a list of (kb_slug, index_within_kb_queue, NormalizedItem).
+        """
+        out = []
+        for kb_slug, routed_items in self._queues.items():
+            for idx, routed in enumerate(routed_items):
+                out.append((kb_slug, idx, routed.normalized))
+        return out
+
+    def _format_batch(self, user_id: int) -> str:
+        pending = self._pending_items_for_user(user_id)
+        if not pending:
+            return "Pending batch is empty."
+        lines = [
+            f"{n}. {item.text}" for n, (_slug, _idx, item) in enumerate(pending, start=1)
+        ]
+        return "Pending batch:\n" + "\n".join(lines)
+
+    def _propose_amendment(
+        self, thread_id: str, user_id: int, pending: list, verdict: dict
+    ) -> dict:
+        """Store a proposed amendment and return the yes/no interrupt question."""
+        target = verdict["target_index"]
+        kb_slug, idx, item = pending[target]
+        old_text = item.text
+        new_text = verdict["new_text"]
+
+        self._pending_amendments[thread_id] = {
+            "kb_slug": kb_slug,
+            "item_index": idx,
+            "old_text": old_text,
+            "new_text": new_text,
+        }
+        # An amendment is activity — keep the batch from flushing mid-confirmation.
+        self._arm_timer(kb_slug, user_id)
+
+        question = (
+            f"Change item {target + 1}:\n"
+            f"  '{old_text}'\n"
+            f"→ '{new_text}'\n"
+            f"(yes/no)"
+        )
+        return {"interrupt_question": question}
+
+    def _resolve_amendment(self, thread_id: str, answer: str, user_id: int) -> dict:
+        """Apply or discard a proposed amendment based on the user's yes/no reply."""
+        proposal = self._pending_amendments.pop(thread_id)
+        kb_slug = proposal["kb_slug"]
+        idx = proposal["item_index"]
+
+        queue = self._queues.get(kb_slug, [])
+        # Guard the race where the batch already flushed while awaiting the reply.
+        if idx >= len(queue) or queue[idx].normalized.text != proposal["old_text"]:
+            return {
+                "reply": "That batch was already processed — send it again to make the change."
+            }
+
+        if _is_affirmative(answer):
+            queue[idx].normalized.text = proposal["new_text"]
+            self._arm_timer(kb_slug, user_id)
+            return {"reply": "Updated. " + self._format_batch(user_id)}
+
+        self._arm_timer(kb_slug, user_id)
+        return {"reply": "Kept original. " + self._format_batch(user_id)}
 
     async def _fire_ingest(self, kb_slug: str, user_id: int) -> None:
         items = self._queues.pop(kb_slug, [])
@@ -216,6 +318,34 @@ class Pipeline:
                 await self.reply_fn(user_id, text)
             except Exception:
                 logger.exception("reply_fn failed for user_id=%s", user_id)
+
+
+_AFFIRMATIVE = {
+    "yes", "y", "yeah", "yep", "yup", "ok", "okay", "sure", "correct", "right",
+    "apply", "do it", "confirm", "confirmed", "si", "sí", "claro", "dale", "hazlo",
+}
+_NEGATIVE = {
+    "no", "n", "nope", "nah", "cancel", "leave", "keep", "stop", "don't", "dont",
+    "negative", "no gracias", "dejalo", "déjalo",
+}
+
+
+def _is_affirmative(answer: str) -> bool:
+    """Pragmatic EN/ES yes/no check for amendment confirmation.
+
+    Defaults to True only on a clear affirmative; an unrecognized or clearly
+    negative reply is treated as a rejection (the safe choice — leaves the
+    queued text untouched).
+    """
+    text = answer.strip().lower().rstrip(".!")
+    if not text:
+        return False
+    if text in _AFFIRMATIVE:
+        return True
+    if text in _NEGATIVE:
+        return False
+    first = text.split()[0]
+    return first in _AFFIRMATIVE
 
 
 def _vault_commit(vault_root: Path, kb_slug: str, items: list) -> None:
