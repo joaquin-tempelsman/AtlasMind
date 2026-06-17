@@ -239,6 +239,52 @@ All tools are **scoped to the KB folder** at construction time. The agent litera
 
 ---
 
+## 3.5 — The Amendment classifier (pre-commit batch edits)
+
+Items sit in the per-KB ingest queue for the debounce window before they reach the KB
+ingestion agent (see [`04_ingestion_layer.md`](04_ingestion_layer.md) and
+[`03_telegram_layer.md`](03_telegram_layer.md)). During that window the user can **correct** a
+message already queued — fix a typo'd name, reword a garbled dictation — *before* anything is
+written or committed. A small, cheap classifier decides whether each new message is a brand-new
+item or a correction of one already pending.
+
+**Module:** `atlasmind/agents/amendment.py`. Not a `create_agent` graph — a single
+claude-haiku call, mirroring `extract_url_metadata` in
+[`tools/url_metadata.py`](../atlasmind/agents/tools/url_metadata.py). It is stateless and has no
+tools.
+
+**Contract:**
+
+```
+async def classify_amendment(pending: list[str], new_text: str) -> dict
+```
+
+- **Input:** `pending` is the ordered list of the texts of the items currently queued for the
+  user (shown 1-indexed to the user); `new_text` is the incoming message.
+- **Output** is exactly one of:
+  - `{"kind": "new"}` — the message is a new item; the pipeline routes and enqueues it normally.
+  - `{"kind": "modification", "target_index": int, "new_text": str, "rationale": str}` — the
+    message corrects pending item `target_index` (0-based into `pending`); `new_text` is the
+    **full corrected text** that should replace the queued item's text; `rationale` is one line.
+- On any ambiguity, an empty `pending`, or a parse failure the classifier returns
+  `{"kind": "new"}` (fail-safe: never silently rewrite the wrong item).
+
+**How the pipeline uses it.** When a message arrives and the user has a non-empty pending batch,
+the pipeline calls `classify_amendment` *before* routing:
+
+- `new` → normal route + enqueue (unchanged behavior).
+- `modification` → the pipeline does **not** route or enqueue. It proposes the change back to the
+  user via the standard interrupt path
+  (`{"interrupt_question": "Change item N: '<old>' → '<new>'? (yes/no)"}`) and remembers the
+  proposal. On an affirmative reply the queued item's text is **rewritten in place**; on a
+  negative reply the batch is left untouched. Either way the debounce timer is re-armed, and the
+  next message re-enters the classifier — so a second correction is just another message.
+
+The original verbatim input remains in `raw/captures/` (persisted at normalize time); rewriting
+the queued text only changes what the KB ingestion agent will see at flush, not the archive.
+
+---
+
 ## 4. HITL — the interrupt pattern, one more time
 
 talkvault's `ask_user` tool is exactly this:

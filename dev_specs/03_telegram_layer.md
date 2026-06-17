@@ -27,6 +27,28 @@ Slash commands are wired as `CommandHandler` instances in `telegram_app.py` and 
 - **`/lint <kb_slug>`** — runs a structural audit on a KB (see [`05_agent_layer.md` §4](05_agent_layer.md)).
 - **`/version`** — replies with the currently-deployed code version: short git commit SHA, the commit subject and date, and (if present) the deploy stamp written by the deploy workflow. Read-only and synchronous; reads git metadata of the running checkout via `atlasmind/version.py`. This is the operator's confirmation that a deploy landed — the reported SHA should match `main`'s HEAD after a successful deploy.
 
+## Batch amendment (hold space)
+
+Messages routed to a KB are not committed immediately — they accumulate in a per-KB ingest queue
+(the "hold space") and flush to the KB ingestion agent only after a quiet window
+(`ingest_delay_seconds`, default 300s). While items are pending, the user can **correct** one
+before it is written.
+
+- **Timer is silence-based, not a fixed total.** Every new message (and every accepted amendment)
+  re-arms the debounce timer, so the window is "N seconds since the last activity," not "N seconds
+  since the first message." Send three messages a minute apart and the batch flushes ~5 minutes
+  after the *third*, not the first.
+- **New vs. modification is inferred per message.** When a message arrives and a batch is already
+  pending, the pipeline runs the amendment classifier (see
+  [`05_agent_layer.md` §3.5](05_agent_layer.md)) *before* routing. A new item routes and enqueues
+  as usual; a modification is proposed back to the user instead of being enqueued.
+- **Accept/reject is free-text.** A proposed modification surfaces through the same interrupt path
+  as any HITL question (`{"interrupt_question": ...}` → session `expecting="answer"`). The user
+  replies with a plain yes/no (English or Spanish); inline buttons remain out of scope (see below).
+  On accept, the queued item's text is rewritten in place and the batch flushes on the (re-armed)
+  timer; on reject, the batch is unchanged. The next message re-enters the classifier, so a second
+  correction is just another message.
+
 ## Learnings lifted from talkvault
 
 These are validated patterns from [`bot/handlers.py`](https://github.com/joaquin-tempelsman/talkvault/blob/main/bot/handlers.py) and [`bot/main.py`](https://github.com/joaquin-tempelsman/talkvault/blob/main/bot/main.py). Re-use them; do not re-derive them.

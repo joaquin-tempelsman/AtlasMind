@@ -158,6 +158,9 @@ async def test_timer_reset_on_second_message(tmp_path: Path):
             "confidence": "high",
         })),
         patch("atlasmind.pipeline.ingest", new=fake_ingest),
+        patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(
+            return_value={"kind": "new"}
+        )),
     ):
         p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.1)
         await p.process(_raw(text="a"), thread_id="t-a")
@@ -176,3 +179,79 @@ def test_is_url_detection():
     assert _is_url("http://foo.bar/baz")
     assert not _is_url("just some text")
     assert not _is_url("https://foo.com has more text")
+
+
+# ---------------------------------------------------------------------------
+# Batch amendment helpers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "answer,expected",
+    [
+        ("yes", True), ("Yes", True), ("y", True), ("yeah", True), ("ok", True),
+        ("sí", True), ("si", True), ("dale", True), ("do it", True),
+        ("yes please", True), ("correct", True),
+        ("no", False), ("nope", False), ("leave it", False), ("cancel", False),
+        ("déjalo", False), ("", False), ("maybe later", False),
+    ],
+)
+def test_is_affirmative(answer: str, expected: bool):
+    from atlasmind.pipeline import _is_affirmative
+    assert _is_affirmative(answer) is expected
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_pending_items_for_user_flattens_queues(tmp_path: Path):
+    """_pending_items_for_user returns one entry per queued item across KBs."""
+    bootstrap_run(vault_path=tmp_path)
+    p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+    assert p._pending_items_for_user(1) == []
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(return_value=_normalized("a"))),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "x", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(
+            return_value={"kind": "new"}
+        )),
+    ):
+        await p.process(_raw(text="a"), thread_id="t-a")
+        await p.process(_raw(text="b"), thread_id="t-b")
+
+    pending = p._pending_items_for_user(1)
+    assert len(pending) == 2
+    kb_slug, idx, item = pending[0]
+    assert kb_slug == "personal-diary"
+    assert idx == 0
+    assert hasattr(item, "text")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_amendment_reject_keeps_text_and_keeps_batch_pending(tmp_path: Path):
+    """A negative reply leaves the queued text unchanged and the batch still pending."""
+    bootstrap_run(vault_path=tmp_path)
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(return_value=_normalized("Pablou"))),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "x", "confidence": "high",
+        })),
+    ):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        await p.process(_raw(text="Pablou"), thread_id="t-x")
+        with patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(return_value={
+            "kind": "modification", "target_index": 0,
+            "new_text": "Pablo", "rationale": "typo",
+        })):
+            interrupt = await p.process(_raw(text="I meant Pablo"), thread_id="t-x")
+        assert "interrupt_question" in interrupt
+
+        result = await p.resume(thread_id="t-x", answer="no", user_id=1)
+
+    assert "reply" in result
+    assert p._queues["personal-diary"][0].normalized.text == "Pablou"
+    assert "t-x" not in p._pending_amendments
