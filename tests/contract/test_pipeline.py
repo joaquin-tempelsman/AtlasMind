@@ -297,3 +297,64 @@ async def test_amendment_reject_leaves_batch_unchanged(tmp_path: Path):
 
     assert "reply" in result
     assert pipeline._queues["personal-diary"][0].normalized.text == "Met Pablou."
+
+
+class _FakeLinkFetcher:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[str] = []
+
+    async def fetch(self, url: str) -> tuple[str, dict]:
+        self.calls.append(url)
+        if self.error is not None:
+            raise self.error
+        return "Inflation explained\n\nBody text.", {"url": url, "title": "Inflation explained"}
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_process_link_message_is_normalized_and_routed(tmp_path: Path):
+    """A kind="link" RawMessage is fetched via the pipeline's LinkFetcher and routed."""
+    bootstrap_run(vault_path=tmp_path)
+    fetcher = _FakeLinkFetcher()
+    url = "https://example.com/inflation"
+    raw = RawMessage(
+        telegram_user_id=1, chat_id=1,
+        received_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=timezone.utc),
+        kind="link", text=url, url=url,
+    )
+
+    with patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+        "kb_slug": "econ-politics", "rationale": "Article.", "confidence": "high",
+    })):
+        pipeline = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600, link_fetcher=fetcher)
+        result = await pipeline.process(raw, thread_id="t-link")
+
+    assert "reply" in result
+    assert fetcher.calls == [url]
+    queued = pipeline._queues["econ-politics"][0].normalized
+    assert queued.source_kind == "link"
+    assert queued.source_meta["url"] == url
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_process_link_fetch_error_returns_error_and_queues_nothing(tmp_path: Path):
+    """LinkFetchError surfaces as {"error": "Couldn't fetch <url>..."}; nothing is queued."""
+    from atlasmind.ingestion.link_fetcher import LinkFetchError
+
+    bootstrap_run(vault_path=tmp_path)
+    url = "https://example.com/missing"
+    raw = RawMessage(
+        telegram_user_id=1, chat_id=1,
+        received_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=timezone.utc),
+        kind="link", text=url, url=url,
+    )
+    pipeline = Pipeline(
+        vault_root=tmp_path, ingest_delay_seconds=3600,
+        link_fetcher=_FakeLinkFetcher(LinkFetchError("HTTP 404")),
+    )
+    result = await pipeline.process(raw, thread_id="t-link-err")
+
+    assert result["error"].startswith(f"Couldn't fetch {url}")
+    assert pipeline._queues == {}

@@ -200,7 +200,7 @@ One line per filed error, newest at top.
 > `<E-NNN> | YYYY-MM-DD | layer | one-line description (linked to dev/errors.md#e-nnn)`
 
 <!-- BEGIN: error index -->
-<!-- _no entries yet — append on every error filed_ -->
+E-001 | 2026-10-27 | pipeline, ingestion.normalize | Link messages always failed: Pipeline never passed a LinkFetcher to normalize() ([dev/errors.md#e-001](dev/errors.md#e-001--link-messages-always-fail-in-normalize))
 <!-- END: error index -->
 
 ---

@@ -83,7 +83,9 @@ class LinkFetcher(Protocol):
         ...
 ```
 
-v0 has one impl of each. Tests mock the protocols. Firecrawl is the planned v0+1 swap for `LinkFetcher` (see [`08_deferred_v0+1.md` §5](08_deferred_v0+1.md)).
+v0 has one impl of each. Tests mock the protocols.
+
+**Ownership:** the `Pipeline` holds the `LinkFetcher` (constructor arg `link_fetcher`, defaulting to a lazily-built `ReadabilityLinkFetcher` on the first `kind="link"` message) and passes it to `normalize()`. `LinkFetchError` is caught in `Pipeline.process()` and returned as `{"error": "Couldn't fetch <url>: <reason>"}`; nothing is queued. Firecrawl is the planned v0+1 swap for `LinkFetcher` (see [`08_deferred_v0+1.md` §5](08_deferred_v0+1.md)).
 
 ## Per-KB Ingest Queue
 
