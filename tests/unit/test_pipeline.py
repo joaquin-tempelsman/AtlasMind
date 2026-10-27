@@ -255,3 +255,72 @@ async def test_amendment_reject_keeps_text_and_keeps_batch_pending(tmp_path: Pat
     assert "reply" in result
     assert p._queues["personal-diary"][0].normalized.text == "Pablou"
     assert "t-x" not in p._pending_amendments
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_text_message_does_not_create_link_fetcher(tmp_path: Path):
+    """The default LinkFetcher is only constructed when a link message arrives."""
+    bootstrap_run(vault_path=tmp_path)
+    with (
+        patch("atlasmind.pipeline.ReadabilityLinkFetcher") as fetcher_cls,
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "x", "confidence": "high",
+        })),
+    ):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        await p.process(_raw(text="hello"), thread_id="t-nofetch")
+
+    fetcher_cls.assert_not_called()
+    assert p.link_fetcher is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_link_message_creates_default_fetcher_once(tmp_path: Path):
+    """The first link builds a ReadabilityLinkFetcher; later links reuse it."""
+    bootstrap_run(vault_path=tmp_path)
+    fake = AsyncMock()
+    fake.fetch.return_value = ("Title\n\nBody", {"url": "u", "title": "Title"})
+    url = "https://example.com/a"
+    raw = RawMessage(
+        telegram_user_id=1, chat_id=1,
+        received_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=timezone.utc),
+        kind="link", text=url, url=url,
+    )
+    with (
+        patch("atlasmind.pipeline.ReadabilityLinkFetcher", return_value=fake) as fetcher_cls,
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "econ-politics", "rationale": "x", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(
+            return_value={"kind": "new"}
+        )),
+    ):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        await p.process(raw, thread_id="t-l1")
+        await p.process(raw, thread_id="t-l2")
+
+    fetcher_cls.assert_called_once()
+    assert fake.fetch.await_count == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_link_fetch_error_message_includes_reason(tmp_path: Path):
+    """The error reply names the URL and the fetcher's reason."""
+    from atlasmind.ingestion.link_fetcher import LinkFetchError
+
+    bootstrap_run(vault_path=tmp_path)
+    fake = AsyncMock()
+    fake.fetch.side_effect = LinkFetchError("HTTP 500 fetching u")
+    url = "https://example.com/b"
+    raw = RawMessage(
+        telegram_user_id=1, chat_id=1,
+        received_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=timezone.utc),
+        kind="link", text=url, url=url,
+    )
+    p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600, link_fetcher=fake)
+    result = await p.process(raw, thread_id="t-l3")
+
+    assert result == {"error": f"Couldn't fetch {url}: HTTP 500 fetching u"}

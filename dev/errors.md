@@ -42,3 +42,20 @@ Entry template:
 <!-- entries go below, newest at top -->
 
 _No errors filed yet._
+
+## E-001 — Link messages always fail in normalize
+**Date:** 2026-10-27
+**Encountered in:** fix/link-normalize (found by a local end-to-end chat QA harness)
+**Layer:** pipeline, ingestion.normalize
+
+### What happened
+- Sending a bare URL in Telegram replied `Error: link_fetcher is required for kind='link'`. Every link message failed; `raw/links/` in the real vault was empty.
+
+### Root cause
+- `Pipeline.process()` called `normalize(raw, vault_root=...)` without a `link_fetcher`. The normalize layer was unit-tested with an injected fetcher and the pipeline tests mocked `normalize` entirely, so no test crossed that boundary with `kind="link"`.
+
+### Fix
+- `Pipeline` now owns a `LinkFetcher` (injectable, lazily defaulting to `ReadabilityLinkFetcher`) and passes it to `normalize()`. `LinkFetchError` becomes `{"error": "Couldn't fetch <url>: ..."}` per `dev_specs/04_ingestion_layer.md`. Fixed in the `fix/link-normalize` PR.
+
+### Learning
+- A boundary that is mocked on both sides is untested. For every optional dependency a layer requires for some input kind, add a contract test that drives the real callee through the caller with that input kind.

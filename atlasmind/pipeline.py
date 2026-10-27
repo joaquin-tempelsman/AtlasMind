@@ -23,6 +23,7 @@ from typing import Awaitable, Callable
 from atlasmind.agents.amendment import classify_amendment
 from atlasmind.agents.kb_ingestion import ingest, resume_ingest
 from atlasmind.agents.router import route, resume_route
+from atlasmind.ingestion.link_fetcher import LinkFetcher, LinkFetchError, ReadabilityLinkFetcher
 from atlasmind.ingestion.normalize import normalize
 from atlasmind.shared.types import RawMessage, RoutedItem
 from atlasmind.vault import git_sync
@@ -40,10 +41,14 @@ class Pipeline:
         vault_root: Path,
         ingest_delay_seconds: float = _DEFAULT_INGEST_DELAY,
         reply_fn: Callable[[int, str], Awaitable[None]] | None = None,
+        link_fetcher: LinkFetcher | None = None,
     ) -> None:
         self.vault_root = vault_root
         self.ingest_delay_seconds = ingest_delay_seconds
         self.reply_fn = reply_fn
+        # Created lazily on the first link message so text/voice-only runs
+        # never open an HTTP client.
+        self.link_fetcher = link_fetcher
 
         # Per-KB ingest queue and debounce timer handles
         self._queues: dict[str, list[RoutedItem]] = {}
@@ -68,8 +73,19 @@ class Pipeline:
 
         Returns {"reply"}, {"interrupt_question"}, or {"error"}.
         """
+        link_fetcher = None
+        if raw.kind == "link":
+            if self.link_fetcher is None:
+                self.link_fetcher = ReadabilityLinkFetcher()
+            link_fetcher = self.link_fetcher
+
         try:
-            normalized = await normalize(raw, vault_root=self.vault_root)
+            normalized = await normalize(
+                raw, link_fetcher=link_fetcher, vault_root=self.vault_root
+            )
+        except LinkFetchError as exc:
+            logger.warning("link fetch failed: %s", exc)
+            return {"error": f"Couldn't fetch {raw.url or raw.text}: {exc}"}
         except Exception as exc:
             logger.exception("normalize failed: %s", exc)
             return {"error": str(exc)}
