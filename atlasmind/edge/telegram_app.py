@@ -6,6 +6,7 @@ from pathlib import Path
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from atlasmind.config import VAULT_REPO_PATH
+from atlasmind.edge import session
 from atlasmind.edge.handlers import handle_lint, handle_text, handle_version, handle_voice
 from atlasmind.pipeline import Pipeline
 
@@ -17,6 +18,15 @@ def _make_reply_fn(app: Application):
     return reply_fn
 
 
+def _make_interrupt_fn(app: Application):
+    async def interrupt_fn(user_id: int, thread_id: str, question: str) -> None:
+        # The next text from this user is the answer, not a new item.
+        session.set_active(user_id, thread_id, expecting="answer")
+        await app.bot.send_message(chat_id=user_id, text=question)
+
+    return interrupt_fn
+
+
 def build_app(token: str, vault_root: Path | None = None) -> Application:
     """Build and return a configured Application (does not start polling)."""
     if vault_root is None:
@@ -24,7 +34,11 @@ def build_app(token: str, vault_root: Path | None = None) -> Application:
 
     app = Application.builder().token(token).build()
 
-    pipeline = Pipeline(vault_root=vault_root, reply_fn=_make_reply_fn(app))
+    pipeline = Pipeline(
+        vault_root=vault_root,
+        reply_fn=_make_reply_fn(app),
+        interrupt_fn=_make_interrupt_fn(app),
+    )
     app.bot_data["pipeline"] = pipeline
 
     app.add_handler(CommandHandler("lint", handle_lint))

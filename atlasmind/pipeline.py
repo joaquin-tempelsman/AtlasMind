@@ -42,10 +42,14 @@ class Pipeline:
         ingest_delay_seconds: float = _DEFAULT_INGEST_DELAY,
         reply_fn: Callable[[int, str], Awaitable[None]] | None = None,
         link_fetcher: LinkFetcher | None = None,
+        interrupt_fn: Callable[[int, str, str], Awaitable[None]] | None = None,
     ) -> None:
         self.vault_root = vault_root
         self.ingest_delay_seconds = ingest_delay_seconds
         self.reply_fn = reply_fn
+        # Delivers an ingest-time HITL question as (user_id, thread_id, question).
+        # The edge must mark the session so the user's reply resumes thread_id.
+        self.interrupt_fn = interrupt_fn
         # Created lazily on the first link message so text/voice-only runs
         # never open an HTTP client.
         self.link_fetcher = link_fetcher
@@ -57,8 +61,9 @@ class Pipeline:
         # Tracks router-interrupted sessions: thread_id → normalized_item
         self._pending_route: dict[str, object] = {}
 
-        # Tracks kb-ingestion-interrupted sessions: thread_id → (kb_slug, user_id)
-        self._pending_ingest: dict[str, tuple[str, int]] = {}
+        # Tracks kb-ingestion-interrupted sessions:
+        # thread_id → (kb_slug, user_id, items of the paused batch)
+        self._pending_ingest: dict[str, tuple[str, int, list[RoutedItem]]] = {}
 
         # Tracks proposed batch amendments awaiting yes/no:
         # thread_id → {kb_slug, item_index, old_text, new_text}
@@ -158,20 +163,25 @@ class Pipeline:
 
         # Check if we're in a kb-ingestion interrupt
         if thread_id in self._pending_ingest:
-            kb_slug, orig_user_id = self._pending_ingest.pop(thread_id)
+            kb_slug, orig_user_id, items = self._pending_ingest.pop(thread_id)
             try:
                 ingest_result = await resume_ingest(
                     answer, self.vault_root, kb_slug, thread_id
                 )
             except Exception as exc:
                 logger.exception("resume_ingest failed: %s", exc)
+                self._rearm_if_queued(kb_slug, orig_user_id)
                 return {"error": f"Resume ingestion failed: {exc}"}
 
             if "interrupt_question" in ingest_result:
-                self._pending_ingest[thread_id] = (kb_slug, orig_user_id)
+                self._pending_ingest[thread_id] = (kb_slug, orig_user_id, items)
                 return {"interrupt_question": ingest_result["interrupt_question"]}
 
             summary = ingest_result.get("summary", "Ingested.")
+            commit_error = await self._commit_batch(kb_slug, items)
+            self._rearm_if_queued(kb_slug, orig_user_id)
+            if commit_error:
+                return {"error": commit_error}
             return {"reply": summary}
 
         return {"error": "No active session to resume."}
@@ -292,13 +302,18 @@ class Pipeline:
         return {"reply": "Kept original. " + self._format_batch(user_id)}
 
     async def _fire_ingest(self, kb_slug: str, user_id: int) -> None:
-        items = self._queues.pop(kb_slug, [])
         self._timers.pop(kb_slug, None)
+        # Use the user_id as ingest thread_id (scoped to kb to avoid collision)
+        ingest_thread_id = f"{user_id}:{kb_slug}"
+        if ingest_thread_id in self._pending_ingest:
+            # The KB is paused on a HITL question. Leave the queue intact; resume()
+            # re-arms the timer once the paused batch finishes.
+            return
+
+        items = self._queues.pop(kb_slug, [])
         if not items:
             return
 
-        # Use the user_id as ingest thread_id (scoped to kb to avoid collision)
-        ingest_thread_id = f"{user_id}:{kb_slug}"
         try:
             result = await ingest(items, self.vault_root, ingest_thread_id)
         except Exception as exc:
@@ -307,13 +322,16 @@ class Pipeline:
             return
 
         if "interrupt_question" in result:
-            self._pending_ingest[ingest_thread_id] = (kb_slug, user_id)
-            await self._send_reply(user_id, result["interrupt_question"])
+            self._pending_ingest[ingest_thread_id] = (kb_slug, user_id, items)
+            await self._send_interrupt(user_id, ingest_thread_id, result["interrupt_question"])
             return
 
         summary = result.get("summary", "Ingested.")
+        commit_error = await self._commit_batch(kb_slug, items)
+        await self._send_reply(user_id, commit_error or summary)
 
-        # Commit vault changes produced by the agent
+    async def _commit_batch(self, kb_slug: str, items: list[RoutedItem]) -> str | None:
+        """Commit vault changes produced by the agent. Returns an error reply, or None."""
         try:
             await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -321,10 +339,13 @@ class Pipeline:
             )
         except Exception as exc:
             logger.exception("vault commit failed for kb=%s: %s", kb_slug, exc)
-            await self._send_reply(user_id, f"Ingested but vault commit failed: {exc}")
-            return
+            return f"Ingested but vault commit failed: {exc}"
+        return None
 
-        await self._send_reply(user_id, summary)
+    def _rearm_if_queued(self, kb_slug: str, user_id: int) -> None:
+        """After a paused batch ends, flush items that queued up during the pause."""
+        if self._queues.get(kb_slug):
+            self._arm_timer(kb_slug, user_id)
 
     # ------------------------------------------------------------------
 
@@ -334,6 +355,15 @@ class Pipeline:
                 await self.reply_fn(user_id, text)
             except Exception:
                 logger.exception("reply_fn failed for user_id=%s", user_id)
+
+    async def _send_interrupt(self, user_id: int, thread_id: str, question: str) -> None:
+        if self.interrupt_fn is None:
+            await self._send_reply(user_id, question)
+            return
+        try:
+            await self.interrupt_fn(user_id, thread_id, question)
+        except Exception:
+            logger.exception("interrupt_fn failed for user_id=%s", user_id)
 
 
 _AFFIRMATIVE = {

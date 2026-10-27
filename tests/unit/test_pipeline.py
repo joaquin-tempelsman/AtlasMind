@@ -324,3 +324,104 @@ async def test_link_fetch_error_message_includes_reason(tmp_path: Path):
     result = await p.process(raw, thread_id="t-l3")
 
     assert result == {"error": f"Couldn't fetch {url}: HTTP 500 fetching u"}
+
+
+def _paused_pipeline(tmp_path: Path, **kwargs) -> Pipeline:
+    """A pipeline with one personal-diary batch paused on an ingest HITL question."""
+    p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.05, **kwargs)
+    p._pending_ingest["1:personal-diary"] = ("personal-diary", 1, [])
+    return p
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ingest_interrupt_falls_back_to_reply_fn(tmp_path: Path):
+    """Without interrupt_fn, the question is still delivered through reply_fn."""
+    bootstrap_run(vault_path=tmp_path)
+    replies: list = []
+
+    async def fake_reply(user_id: int, text: str) -> None:
+        replies.append((user_id, text))
+
+    async def fake_ingest(items, vault_root, thread_id, model=None):
+        return {"interrupt_question": "Which Ro?"}
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(return_value=_normalized())),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "x", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline.ingest", new=fake_ingest),
+    ):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.05, reply_fn=fake_reply)
+        await p.process(_raw(user_id=1), thread_id="1")
+        await asyncio.sleep(0.2)
+
+    assert replies == [(1, "Which Ro?")]
+    assert "1:personal-diary" in p._pending_ingest
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_resume_ingest_commit_failure_returns_error(tmp_path: Path):
+    """If the post-resume commit fails, the user gets the commit error, not the summary."""
+    bootstrap_run(vault_path=tmp_path)
+    p = _paused_pipeline(tmp_path)
+
+    def boom(*a, **k):
+        raise RuntimeError("push rejected")
+
+    with (
+        patch("atlasmind.pipeline.resume_ingest", new=AsyncMock(return_value={"summary": "ok"})),
+        patch("atlasmind.pipeline._vault_commit", new=boom),
+    ):
+        result = await p.resume(thread_id="1:personal-diary", answer="yes", user_id=1)
+
+    assert result == {"error": "Ingested but vault commit failed: push rejected"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_resume_ingest_exception_unpauses_kb_and_flushes_queue(tmp_path: Path):
+    """A failed resume clears the pause so items queued meanwhile still ingest."""
+    bootstrap_run(vault_path=tmp_path)
+    p = _paused_pipeline(tmp_path)
+    called: list = []
+
+    async def fake_ingest(items, vault_root, thread_id, model=None):
+        called.append(items)
+        return {"summary": "done"}
+
+    from atlasmind.shared.types import RoutedItem
+    p._queues["personal-diary"] = [RoutedItem(
+        normalized=_normalized("queued during pause"), kb_slug="personal-diary",
+        routing_rationale="x", confidence="high",
+    )]
+
+    with (
+        patch("atlasmind.pipeline.resume_ingest", new=AsyncMock(side_effect=RuntimeError("x"))),
+        patch("atlasmind.pipeline.ingest", new=fake_ingest),
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: None),
+    ):
+        result = await p.resume(thread_id="1:personal-diary", answer="yes", user_id=1)
+        await asyncio.sleep(0.2)
+
+    assert "error" in result
+    assert "1:personal-diary" not in p._pending_ingest
+    assert len(called) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_repeated_ingest_interrupt_keeps_batch_paused(tmp_path: Path):
+    """A second ask_user during resume keeps the same batch paused for the next answer."""
+    bootstrap_run(vault_path=tmp_path)
+    p = _paused_pipeline(tmp_path)
+
+    with patch("atlasmind.pipeline.resume_ingest", new=AsyncMock(
+        return_value={"interrupt_question": "And Sebi?"}
+    )):
+        result = await p.resume(thread_id="1:personal-diary", answer="yes", user_id=1)
+
+    assert result == {"interrupt_question": "And Sebi?"}
+    assert p._pending_ingest["1:personal-diary"] == ("personal-diary", 1, [])
