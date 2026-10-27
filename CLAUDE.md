@@ -200,6 +200,7 @@ One line per filed error, newest at top.
 > `<E-NNN> | YYYY-MM-DD | layer | one-line description (linked to dev/errors.md#e-nnn)`
 
 <!-- BEGIN: error index -->
+E-004 | 2026-10-27 | agents | A raising tool aborted the whole agent run and dropped the batch instead of returning an error to the agent ([dev/errors.md#e-004](dev/errors.md#e-004--a-raising-tool-aborts-the-agent-run))
 E-003 | 2026-10-27 | pipeline | Batches finished via HITL resume were never committed to the vault ([dev/errors.md#e-003](dev/errors.md#e-003--resumed-ingest-batches-never-committed))
 E-002 | 2026-10-27 | pipeline, edge | Ingest-time ask_user never marked the session, so the answer was filed as a new note ([dev/errors.md#e-002](dev/errors.md#e-002--ingest-time-hitl-answer-filed-as-a-new-note))
 E-001 | 2026-10-27 | pipeline, ingestion.normalize | Link messages always failed: Pipeline never passed a LinkFetcher to normalize() ([dev/errors.md#e-001](dev/errors.md#e-001--link-messages-always-fail-in-normalize))

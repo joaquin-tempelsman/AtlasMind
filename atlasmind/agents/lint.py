@@ -14,6 +14,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 
+from atlasmind.agents.middleware import ToolErrorsAsMessages
 from atlasmind.agents.tools.kb_lint import make_kb_lint_tools
 from atlasmind.agents.tools.kb_pages import make_kb_page_tools
 
@@ -49,6 +50,7 @@ def get_agent(
             model,
             tools=tools,
             system_prompt=_build_system_prompt(kb_slug),
+            middleware=[ToolErrorsAsMessages()],
         )
     return _agent_cache[key]
 

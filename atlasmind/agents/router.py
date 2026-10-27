@@ -14,6 +14,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from atlasmind.agents.middleware import ToolErrorsAsMessages
 from atlasmind.agents.tools.interaction import ask_user
 from atlasmind.agents.tools.kb_meta import make_kb_meta_tools
 from atlasmind.shared.types import NormalizedItem
@@ -44,6 +45,7 @@ def get_agent(vault_root: Path, model: BaseChatModel | None = None) -> object:
             model,
             tools=tools,
             system_prompt=_SYSTEM_PROMPT,
+            middleware=[ToolErrorsAsMessages()],
             checkpointer=saver,
         )
     return _agent_cache[key]

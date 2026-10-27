@@ -15,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from atlasmind.agents.middleware import ToolErrorsAsMessages
 from atlasmind.agents.tools.interaction import ask_user
 from atlasmind.agents.tools.kb_entities import make_kb_entity_tools
 from atlasmind.agents.tools.kb_log import make_kb_log_tools
@@ -166,6 +167,7 @@ def get_agent(
             model,
             tools=tools,
             system_prompt=_build_system_prompt(vault_root, kb_slug),
+            middleware=[ToolErrorsAsMessages()],
             checkpointer=saver,
         )
     return _agent_cache[key]
