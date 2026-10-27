@@ -200,6 +200,7 @@ One line per filed error, newest at top.
 > `<E-NNN> | YYYY-MM-DD | layer | one-line description (linked to dev/errors.md#e-nnn)`
 
 <!-- BEGIN: error index -->
+E-005 | 2026-10-27 | agents.router | Router run without commit_route silently reused the previous item's KB from general_log.md ([dev/errors.md#e-005](dev/errors.md#e-005--router-reused-a-stale-route-when-it-did-not-commit))
 E-004 | 2026-10-27 | agents | A raising tool aborted the whole agent run and dropped the batch instead of returning an error to the agent ([dev/errors.md#e-004](dev/errors.md#e-004--a-raising-tool-aborts-the-agent-run))
 E-003 | 2026-10-27 | pipeline | Batches finished via HITL resume were never committed to the vault ([dev/errors.md#e-003](dev/errors.md#e-003--resumed-ingest-batches-never-committed))
 E-002 | 2026-10-27 | pipeline, edge | Ingest-time ask_user never marked the session, so the answer was filed as a new note ([dev/errors.md#e-002](dev/errors.md#e-002--ingest-time-hitl-answer-filed-as-a-new-note))

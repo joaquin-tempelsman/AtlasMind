@@ -5,12 +5,13 @@ by invoking a LangChain agent with kb_meta tools.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
@@ -18,7 +19,6 @@ from atlasmind.agents.middleware import ToolErrorsAsMessages
 from atlasmind.agents.tools.interaction import ask_user
 from atlasmind.agents.tools.kb_meta import make_kb_meta_tools
 from atlasmind.shared.types import NormalizedItem
-from atlasmind.vault import frontmatter as fm
 
 _SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "router_system.md").read_text(
     encoding="utf-8"
@@ -57,18 +57,35 @@ def reset_cache() -> None:
     _saver_cache.clear()
 
 
-def _last_route(vault_root: Path) -> dict:
-    """Read the most recent routing entry from general_log.md."""
-    log_path = vault_root / "_meta" / "general_log.md"
-    entries = fm.parse_routing_log_entries(log_path.read_text(encoding="utf-8"))
-    if not entries:
-        raise RuntimeError("Router completed but general_log.md has no entries")
-    last = entries[-1]
-    return {
-        "kb_slug": last["kb_slug"],
-        "rationale": last.get("rationale", ""),
-        "confidence": last["confidence"],
-    }
+class RouterNoDecisionError(RuntimeError):
+    """The router run ended without a successful commit_route call."""
+
+
+def _committed_route(result: dict) -> dict:
+    """Return this run's routing decision from its successful commit_route result.
+
+    Only messages after the latest HumanMessage (the item being routed) count, so
+    an earlier item's decision on the same thread can never be reused.
+    """
+    messages = result.get("messages", [])
+    start = 0
+    for i, msg in enumerate(messages):
+        if isinstance(msg, HumanMessage):
+            start = i
+    for msg in reversed(messages[start:]):
+        if not (isinstance(msg, ToolMessage) and msg.name == "commit_route"):
+            continue
+        try:
+            data = json.loads(msg.content)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(data, dict) and data.get("ok"):
+            return {
+                "kb_slug": data["kb_slug"],
+                "rationale": data.get("rationale", ""),
+                "confidence": data.get("confidence", "medium"),
+            }
+    raise RouterNoDecisionError("Router finished without choosing a KB")
 
 
 async def route(
@@ -96,7 +113,7 @@ async def route(
     if "__interrupt__" in result:
         question = result["__interrupt__"][0].value.get("question", "")
         return {"interrupt_question": question}
-    return _last_route(vault_root)
+    return _committed_route(result)
 
 
 async def _resume_agent(agent: object, answer: str, config: dict) -> dict:
@@ -140,4 +157,4 @@ async def resume_route(
     if "__interrupt__" in result:
         question = result["__interrupt__"][0].value.get("question", "")
         return {"interrupt_question": question}
-    return _last_route(vault_root)
+    return _committed_route(result)
