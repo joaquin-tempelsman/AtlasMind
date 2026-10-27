@@ -7,6 +7,123 @@ The one-line index lives in [`CLAUDE.md` §5](../CLAUDE.md#5-feature-index). Upd
 Entry template:
 
 ```markdown
+## PR #20 — Per-run agent threads (E-006)
+**Date:** 2026-10-27
+**Branch:** fix/agent-thread-scope
+**Layer(s):** pipeline, agents.router, agents.kb_ingestion
+**Spec:** [dev_specs/05_agent_layer.md §1, §5](../dev_specs/05_agent_layer.md)
+
+### What changed
+- Each routed item and each ingest batch runs on its own checkpointer thread (`<edge thread>:<run id>`). Edge/session thread ids are unchanged.
+- The pipeline maps edge thread to agent thread while paused; `forget_thread()` deletes finished checkpoints.
+
+### Contracts asserted
+- tests/contract/test_pipeline.py — router sees only the current item; router HITL still round-trips; ingest batches do not share history.
+
+### Within-layer tests added
+- tests/unit/test_router.py, test_kb_ingestion.py — forget_thread drops checkpoint / no-op without agent.
+- tests/unit/test_pipeline.py — `_run_thread` uniqueness; paused ingest keeps then frees its checkpoint.
+
+### Notes
+- `SummarizationMiddleware` (spec §5) is still not wired; the spec now says so explicitly.
+
+## PR #19 — Router decision from this run's commit_route (E-005)
+**Date:** 2026-10-27
+**Branch:** fix/router-decision
+**Layer(s):** agents.router, agents.tools
+**Spec:** [dev_specs/05_agent_layer.md §2](../dev_specs/05_agent_layer.md)
+
+### What changed
+- `route()`/`resume_route()` read this run's successful `commit_route` ToolMessage instead of the tail of `general_log.md`; raise `RouterNoDecisionError` if none.
+- `commit_route` echoes `rationale` and `confidence`.
+
+### Contracts asserted
+- tests/contract/test_agents.py — no commit raises (no stale reuse); decision mirrors this run's commit; rejected commit followed by a valid one.
+
+### Within-layer tests added
+- tests/unit/test_router.py — `_committed_route` scoping, failed/unparseable commits, latest success wins.
+- tests/unit/test_kb_meta.py, test_pipeline.py — echo fields; no decision gives an error with an empty queue.
+
+### Notes
+- An item whose router run fails still leaves its raw capture in `raw/captures/`; it is committed with the next batch.
+
+## PR #18 — Tool exceptions returned to agents (E-004)
+**Date:** 2026-10-27
+**Branch:** fix/agent-tool-errors
+**Layer(s):** agents
+**Spec:** [dev_specs/05_agent_layer.md §6](../dev_specs/05_agent_layer.md)
+
+### What changed
+- New `atlasmind/agents/middleware.py::ToolErrorsAsMessages` (sync + async), installed on router, KB ingestion and lint agents.
+- Tool exceptions become `ToolMessage(status="error")`; `GraphBubbleUp` is re-raised so `ask_user` keeps working.
+
+### Contracts asserted
+- tests/contract/test_agents.py — KB and lint agents recover from a rejected tool call.
+
+### Within-layer tests added
+- tests/unit/test_middleware.py — sync/async conversion, passthrough, interrupt re-raise.
+
+### Notes
+- Tools still raise (tool-level contract unchanged); handling lives at the agent layer.
+
+## PR #17 — Ingest-time HITL delivery and commit (E-002, E-003)
+**Date:** 2026-10-27
+**Branch:** fix/ingest-hitl
+**Layer(s):** pipeline, edge.telegram_app
+**Spec:** [dev_specs/05_agent_layer.md §4](../dev_specs/05_agent_layer.md)
+
+### What changed
+- `Pipeline(interrupt_fn=...)`; the Telegram app sets `expecting="answer"` on the ingest thread and sends the question.
+- `_commit_batch()` is shared by direct and resumed completions.
+- A paused KB defers its timer; `resume()` re-arms it afterwards.
+
+### Contracts asserted
+- tests/contract/test_pipeline.py — interrupt handed to edge with a resumable thread; resumed batch committed; paused KB defers a new batch.
+
+### Within-layer tests added
+- tests/unit/test_pipeline.py — reply_fn fallback, commit failure, failing resume unpauses, repeated interrupt.
+- tests/unit/test_telegram_app.py — interrupt_fn marks the session.
+
+### Notes
+- Single-tenant assumption: an ingest question and a router question for the same user at once still share one session slot.
+
+## PR #16 — Pin ruff to 0.15.15
+**Date:** 2026-10-27
+**Branch:** chore/pin-ruff
+**Layer(s):** ci
+**Spec:** n/a
+
+### What changed
+- `ruff>=0.4` became `ruff==0.15.15` in requirements.txt and pyproject.toml.
+
+### Contracts asserted
+- None (tooling only).
+
+### Within-layer tests added
+- None.
+
+### Notes
+- CI had started resolving ruff 0.17.3, whose expanded default rules flag 66 pre-existing sites. Upgrading ruff should be its own PR with autofixes.
+
+## PR #15 — LinkFetcher wired into the pipeline (E-001)
+**Date:** 2026-10-27
+**Branch:** fix/link-normalize
+**Layer(s):** pipeline, ingestion
+**Spec:** [dev_specs/04_ingestion_layer.md](../dev_specs/04_ingestion_layer.md)
+
+### What changed
+- `Pipeline` owns a `LinkFetcher` (injectable; lazily `ReadabilityLinkFetcher`) and passes it to `normalize()`.
+- `LinkFetchError` becomes `{"error": "Couldn't fetch <url>: ..."}`; nothing is queued.
+
+### Contracts asserted
+- tests/contract/test_pipeline.py — link message normalized and routed; fetch error returns error and queues nothing.
+
+### Within-layer tests added
+- tests/unit/test_pipeline.py — no fetcher built for text; default built once; error text.
+
+### Notes
+- Bugs E-001 to E-006 were found by a throwaway end-to-end chat harness (scripted LLMs, real handlers, pipeline, agents, tools and git against a vault clone). It was not committed.
+
 ## PR #<num> — <short title>
 **Date:** YYYY-MM-DD
 **Branch:** feat/<name>

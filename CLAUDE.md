@@ -177,6 +177,12 @@ One line per merged feature, newest at top.
 > `<PR#> | YYYY-MM-DD | layer(s) | one-line description`
 
 <!-- BEGIN: feature index -->
+#20 | 2026-10-27 | pipeline, agents | Per-run agent checkpointer threads (no cross-item history) + forget_thread cleanup (E-006)
+#19 | 2026-10-27 | agents.router | Route derived from this run's commit_route; RouterNoDecisionError instead of stale log reuse (E-005)
+#18 | 2026-10-27 | agents | ToolErrorsAsMessages middleware: tool exceptions returned to the agent, interrupts preserved (E-004)
+#17 | 2026-10-27 | pipeline, edge | Ingest-time HITL via interrupt_fn (session marked), resumed batches committed, paused KB defers timer (E-002, E-003)
+#16 | 2026-10-27 | ci | Pin ruff to 0.15.15 so CI lint matches local
+#15 | 2026-10-27 | pipeline, ingestion | Link messages fixed: Pipeline owns a LinkFetcher; LinkFetchError gives a "Couldn't fetch" reply (E-001)
 #14 | 2026-06-17 | agents.amendment, pipeline | Pre-commit batch amendment: classify new-vs-correction of pending items (haiku), propose via HITL, rewrite queued text on yes; debounce timer re-arms on every message/amendment
 #12 | 2026-06-15 | edge.handlers, edge.telegram_app, ci/cd | /version command (deployed git sha/subject/date + deploy stamp); deploy health gate (systemctl is-active) + journalctl log tail
 #11 | 2026-06-15 | bootstrap, agents.kb_ingestion | Per-KB output language setting (translate all wiki content; preserve proper nouns/links; finalize summary stays in input language)
