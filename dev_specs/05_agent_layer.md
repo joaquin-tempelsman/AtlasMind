@@ -309,6 +309,10 @@ This works identically for the router and the KB ingestion agent because they sh
 
 **Batching + HITL:** if an interrupt fires during a batch run, the batch is paused. New items arriving for the same KB during the pause are queued normally; their debounce timer runs but will not fire a new agent instantiation until the current batch's interrupt is resolved. (The pipeline checks: if an agent for that KB has an active interrupt, skip the timer and wait.)
 
+**Ingest-time interrupts are asynchronous.** The KB ingestion agent runs from the debounce timer, not from a user message, so there is no `process()` return value to carry the question. The pipeline instead calls `interrupt_fn(user_id, thread_id, question)` (constructor arg; falls back to `reply_fn` when unset). The edge's `interrupt_fn` must send the question **and** mark the session `expecting="answer"` with that `thread_id` (`"<user_id>:<kb_slug>"`), so the next text is routed to `pipeline.resume()` rather than filed as a new item.
+
+**Resume finishes the batch.** When `resume()` completes a paused ingest (agent called `finalize`), the pipeline commits the vault exactly as an uninterrupted batch does (`note(<kb>): batch of N item(s)`) and then re-arms the KB's timer if items queued up during the pause. A commit failure is returned as `{"error": "Ingested but vault commit failed: ..."}`. A resume that raises also clears the pause and re-arms.
+
 ---
 
 ## 5. Context management — the long-running concern

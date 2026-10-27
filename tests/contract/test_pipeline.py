@@ -358,3 +358,121 @@ async def test_process_link_fetch_error_returns_error_and_queues_nothing(tmp_pat
 
     assert result["error"].startswith(f"Couldn't fetch {url}")
     assert pipeline._queues == {}
+
+
+async def _pause_ingest(tmp_path: Path, commits: list, interrupts: list, ingested: list):
+    """Build a pipeline whose first ingest run pauses on an ask_user question."""
+
+    async def fake_ingest(items, vault_root, thread_id, model=None):
+        ingested.append(list(items))
+        return {"interrupt_question": "Is Ro the same person as people/ro.md?"}
+
+    async def fake_interrupt(user_id: int, thread_id: str, question: str) -> None:
+        interrupts.append((user_id, thread_id, question))
+
+    pipeline = Pipeline(
+        vault_root=tmp_path, ingest_delay_seconds=0.05, interrupt_fn=fake_interrupt,
+    )
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(
+            return_value=_routed("Asado with Ro.").normalized
+        )),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "Diary.", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline.ingest", new=fake_ingest),
+    ):
+        await pipeline.process(_raw(user_id=7), thread_id="7")
+        await asyncio.sleep(0.2)
+    return pipeline
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_ingest_interrupt_is_handed_to_edge_with_resumable_thread(tmp_path: Path):
+    """An ingest-time ask_user reaches interrupt_fn with a thread_id that resume() accepts."""
+    bootstrap_run(vault_path=tmp_path)
+    commits: list = []
+    interrupts: list = []
+    pipeline = await _pause_ingest(tmp_path, commits, interrupts, [])
+
+    assert len(interrupts) == 1
+    user_id, thread_id, question = interrupts[0]
+    assert user_id == 7
+    assert "Ro" in question
+
+    with (
+        patch("atlasmind.pipeline.resume_ingest", new=AsyncMock(
+            return_value={"summary": "Filed: asado."}
+        )),
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: commits.append(a)),
+    ):
+        result = await pipeline.resume(thread_id=thread_id, answer="yes", user_id=7)
+
+    assert result == {"reply": "Filed: asado."}
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_resumed_ingest_batch_is_committed(tmp_path: Path):
+    """A batch that finishes after a HITL answer is committed exactly like an uninterrupted one."""
+    bootstrap_run(vault_path=tmp_path)
+    commits: list = []
+    interrupts: list = []
+    pipeline = await _pause_ingest(tmp_path, commits, interrupts, [])
+    _, thread_id, _ = interrupts[0]
+
+    with (
+        patch("atlasmind.pipeline.resume_ingest", new=AsyncMock(
+            return_value={"summary": "Filed: asado."}
+        )),
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: commits.append(a)),
+    ):
+        await pipeline.resume(thread_id=thread_id, answer="yes", user_id=7)
+
+    assert len(commits) == 1
+    _vault_root, kb_slug, items = commits[0]
+    assert kb_slug == "personal-diary"
+    assert [i.normalized.text for i in items] == ["Asado with Ro."]
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_paused_kb_defers_new_batch_until_resume(tmp_path: Path):
+    """Items queued for a KB paused on HITL wait; they ingest only after the pause resolves."""
+    bootstrap_run(vault_path=tmp_path)
+    commits: list = []
+    interrupts: list = []
+    ingested: list = []
+    pipeline = await _pause_ingest(tmp_path, commits, interrupts, ingested)
+    _, thread_id, _ = interrupts[0]
+
+    async def second_ingest(items, vault_root, thread_id, model=None):
+        ingested.append(list(items))
+        return {"summary": "Filed second."}
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(
+            return_value=_routed("Padel with Sebi.").normalized
+        )),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "Diary.", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(
+            return_value={"kind": "new"}
+        )),
+        patch("atlasmind.pipeline.ingest", new=second_ingest),
+        patch("atlasmind.pipeline.resume_ingest", new=AsyncMock(
+            return_value={"summary": "Filed: asado."}
+        )),
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: commits.append(a)),
+    ):
+        await pipeline.process(_raw(user_id=7), thread_id="7")
+        await asyncio.sleep(0.2)
+        assert len(ingested) == 1, "a second run started while the KB was paused"
+
+        await pipeline.resume(thread_id=thread_id, answer="yes", user_id=7)
+        await asyncio.sleep(0.2)
+
+    assert len(ingested) == 2
+    assert [i.normalized.text for i in ingested[1]] == ["Padel with Sebi."]
