@@ -37,7 +37,7 @@ Why these pieces:
 - **`InMemorySaver` checkpointer** — required for HITL because `interrupt()` needs persistent graph state between turns. Talkvault uses it; we keep it. (Persistent checkpointer like `AsyncPostgresSaver` is post-v0.)
 - **`SummarizationMiddleware`** — auto-summarizes message history when context gets long. We add it preemptively because the KB ingestion agent does multi-turn tool calls that can blow up message count (read 10 pages, edit 5, re-read for review). Configured to summarize when tokens ≥ 6000, keep last 20 messages.
 - **`HumanInTheLoopMiddleware`** — *not* used in v0. Talkvault uses an explicit `ask_user` tool that calls `interrupt()`, which is more granular and matches our HITL needs (we want to ask custom questions, not approve/reject specific tool calls). We follow talkvault's pattern.
-- **`thread_id` = `str(telegram_user_id)`** — so resumes round-trip per user. Single-tenant in v0 means thread collisions are impossible; multi-tenant later will need a tuple `(user, run_id)`.
+- **Edge `thread_id` vs agent thread.** The edge and `Pipeline.process/resume` use `str(telegram_user_id)` (router) and `"<user_id>:<kb_slug>"` (ingest) so resumes round-trip per user. The **agent checkpointer thread** is per run: `"<edge thread>:<12-hex run id>"`, one per routed item and one per ingest batch. The pipeline maps the edge thread to the agent thread while a run is paused on `ask_user`, and calls `forget_thread()` to delete the checkpoint once the run finishes. Agents therefore never see earlier items' conversations.
 - **`version="v2"`** — required for the GraphOutput shape with `.value` and `.interrupts` (talkvault uses this; v1 returns a different structure).
 
 ### Single agent instance? Or per-call?
@@ -324,8 +324,8 @@ This system is intended to run for years. A few specific concerns and how v0 han
 | `general_log.md` grows huge | The router reads at most N=20 entries using **stratified sampling** (one per active KB first, then reverse-chron fill). The file itself can grow indefinitely. |
 | KB `log.md` grows huge | Agent reads the last 30 lines. |
 | KB `index.md` grows huge | Read in full but bounded by user behavior — at ~100 sources/KB this stays under 1k lines. Past that, post-v0 we'd add a per-category index. |
-| Per-ingest agent message history blows up | `SummarizationMiddleware` triggers at 6000 tokens. |
-| Checkpointer accumulates dead threads | `InMemorySaver` resets on process restart. Acceptable for v0 single-process polling deployment. Post-v0: persistent checkpointer + TTL eviction. |
+| Per-ingest agent message history blows up | Bounded to a single item (router) or a single batch (ingest) by per-run agent threads (§1). `SummarizationMiddleware` at 6000 tokens remains the plan for very large batches but is **not wired yet**. |
+| Checkpointer accumulates dead threads | Finished runs are deleted via `forget_thread()`. Only runs paused on `ask_user` linger, and `InMemorySaver` resets on process restart. Post-v0: persistent checkpointer + TTL eviction for abandoned pauses. |
 | Prompt drift (agent.md gets edited badly) | All `agent.md` files live in the **vault repo**, so the user gets git history of their own prompt edits. They can revert from Obsidian's git pane or VSCode. |
 
 ---

@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from pathlib import Path
 from typing import Awaitable, Callable
 
 from atlasmind.agents.amendment import classify_amendment
+from atlasmind.agents.kb_ingestion import forget_thread as forget_ingest_thread
 from atlasmind.agents.kb_ingestion import ingest, resume_ingest
-from atlasmind.agents.router import route, resume_route
+from atlasmind.agents.router import forget_thread as forget_route_thread
+from atlasmind.agents.router import resume_route, route
 from atlasmind.ingestion.link_fetcher import LinkFetcher, LinkFetchError, ReadabilityLinkFetcher
 from atlasmind.ingestion.normalize import normalize
 from atlasmind.shared.types import RawMessage, RoutedItem
@@ -58,12 +61,16 @@ class Pipeline:
         self._queues: dict[str, list[RoutedItem]] = {}
         self._timers: dict[str, asyncio.TimerHandle] = {}
 
-        # Tracks router-interrupted sessions: thread_id → normalized_item
-        self._pending_route: dict[str, object] = {}
+        # Agent runs get their own checkpointer thread (one per routed item, one
+        # per ingest batch) so history never leaks between items. The thread_id
+        # the edge sees is mapped to the agent thread while a run is paused.
+
+        # Tracks router-interrupted sessions: thread_id → (normalized_item, agent thread)
+        self._pending_route: dict[str, tuple[object, str]] = {}
 
         # Tracks kb-ingestion-interrupted sessions:
-        # thread_id → (kb_slug, user_id, items of the paused batch)
-        self._pending_ingest: dict[str, tuple[str, int, list[RoutedItem]]] = {}
+        # thread_id → (kb_slug, user_id, items of the paused batch, agent thread)
+        self._pending_ingest: dict[str, tuple[str, int, list[RoutedItem], str]] = {}
 
         # Tracks proposed batch amendments awaiting yes/no:
         # thread_id → {kb_slug, item_index, old_text, new_text}
@@ -113,15 +120,19 @@ class Pipeline:
             if verdict.get("kind") == "modification":
                 return self._propose_amendment(thread_id, user_id, pending, verdict)
 
+        route_thread = _run_thread(thread_id)
         try:
-            route_result = await route(normalized, self.vault_root, thread_id)
+            route_result = await route(normalized, self.vault_root, route_thread)
         except Exception as exc:
             logger.exception("route failed: %s", exc)
+            forget_route_thread(self.vault_root, route_thread)
             return {"error": f"Routing failed: {exc}"}
 
         if "interrupt_question" in route_result:
-            self._pending_route[thread_id] = normalized
+            self._pending_route[thread_id] = (normalized, route_thread)
             return {"interrupt_question": route_result["interrupt_question"]}
+
+        forget_route_thread(self.vault_root, route_thread)
 
         return self._enqueue(
             kb_slug=route_result["kb_slug"],
@@ -142,16 +153,19 @@ class Pipeline:
 
         # Check if we're in a router interrupt
         if thread_id in self._pending_route:
-            normalized = self._pending_route.pop(thread_id)
+            normalized, route_thread = self._pending_route.pop(thread_id)
             try:
-                route_result = await resume_route(answer, self.vault_root, thread_id)
+                route_result = await resume_route(answer, self.vault_root, route_thread)
             except Exception as exc:
                 logger.exception("resume_route failed: %s", exc)
+                forget_route_thread(self.vault_root, route_thread)
                 return {"error": f"Resume routing failed: {exc}"}
 
             if "interrupt_question" in route_result:
-                self._pending_route[thread_id] = normalized
+                self._pending_route[thread_id] = (normalized, route_thread)
                 return {"interrupt_question": route_result["interrupt_question"]}
+
+            forget_route_thread(self.vault_root, route_thread)
 
             return self._enqueue(
                 kb_slug=route_result["kb_slug"],
@@ -163,20 +177,22 @@ class Pipeline:
 
         # Check if we're in a kb-ingestion interrupt
         if thread_id in self._pending_ingest:
-            kb_slug, orig_user_id, items = self._pending_ingest.pop(thread_id)
+            kb_slug, orig_user_id, items, agent_thread = self._pending_ingest.pop(thread_id)
             try:
                 ingest_result = await resume_ingest(
-                    answer, self.vault_root, kb_slug, thread_id
+                    answer, self.vault_root, kb_slug, agent_thread
                 )
             except Exception as exc:
                 logger.exception("resume_ingest failed: %s", exc)
+                forget_ingest_thread(self.vault_root, kb_slug, agent_thread)
                 self._rearm_if_queued(kb_slug, orig_user_id)
                 return {"error": f"Resume ingestion failed: {exc}"}
 
             if "interrupt_question" in ingest_result:
-                self._pending_ingest[thread_id] = (kb_slug, orig_user_id, items)
+                self._pending_ingest[thread_id] = (kb_slug, orig_user_id, items, agent_thread)
                 return {"interrupt_question": ingest_result["interrupt_question"]}
 
+            forget_ingest_thread(self.vault_root, kb_slug, agent_thread)
             summary = ingest_result.get("summary", "Ingested.")
             commit_error = await self._commit_batch(kb_slug, items)
             self._rearm_if_queued(kb_slug, orig_user_id)
@@ -314,17 +330,21 @@ class Pipeline:
         if not items:
             return
 
+        agent_thread = _run_thread(ingest_thread_id)
         try:
-            result = await ingest(items, self.vault_root, ingest_thread_id)
+            result = await ingest(items, self.vault_root, agent_thread)
         except Exception as exc:
             logger.exception("ingest failed for kb=%s: %s", kb_slug, exc)
+            forget_ingest_thread(self.vault_root, kb_slug, agent_thread)
             await self._send_reply(user_id, f"Ingestion failed: {exc}")
             return
 
         if "interrupt_question" in result:
-            self._pending_ingest[ingest_thread_id] = (kb_slug, user_id, items)
+            self._pending_ingest[ingest_thread_id] = (kb_slug, user_id, items, agent_thread)
             await self._send_interrupt(user_id, ingest_thread_id, result["interrupt_question"])
             return
+
+        forget_ingest_thread(self.vault_root, kb_slug, agent_thread)
 
         summary = result.get("summary", "Ingested.")
         commit_error = await self._commit_batch(kb_slug, items)
@@ -392,6 +412,11 @@ def _is_affirmative(answer: str) -> bool:
         return False
     first = text.split()[0]
     return first in _AFFIRMATIVE
+
+
+def _run_thread(base: str) -> str:
+    """A fresh agent checkpointer thread for one run, derived from the edge thread."""
+    return f"{base}:{uuid.uuid4().hex[:12]}"
 
 
 def _vault_commit(vault_root: Path, kb_slug: str, items: list) -> None:

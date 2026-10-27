@@ -329,7 +329,7 @@ async def test_link_fetch_error_message_includes_reason(tmp_path: Path):
 def _paused_pipeline(tmp_path: Path, **kwargs) -> Pipeline:
     """A pipeline with one personal-diary batch paused on an ingest HITL question."""
     p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.05, **kwargs)
-    p._pending_ingest["1:personal-diary"] = ("personal-diary", 1, [])
+    p._pending_ingest["1:personal-diary"] = ("personal-diary", 1, [], "1:personal-diary:run")
     return p
 
 
@@ -424,7 +424,7 @@ async def test_repeated_ingest_interrupt_keeps_batch_paused(tmp_path: Path):
         result = await p.resume(thread_id="1:personal-diary", answer="yes", user_id=1)
 
     assert result == {"interrupt_question": "And Sebi?"}
-    assert p._pending_ingest["1:personal-diary"] == ("personal-diary", 1, [])
+    assert p._pending_ingest["1:personal-diary"] == ("personal-diary", 1, [], "1:personal-diary:run")
 
 
 @pytest.mark.unit
@@ -445,3 +445,57 @@ async def test_router_no_decision_returns_error_and_queues_nothing(tmp_path: Pat
 
     assert result == {"error": "Routing failed: Router finished without choosing a KB"}
     assert p._queues == {}
+
+
+@pytest.mark.unit
+def test_run_thread_is_unique_and_prefixed():
+    from atlasmind.pipeline import _run_thread
+
+    a, b = _run_thread("1:personal-diary"), _run_thread("1:personal-diary")
+    assert a != b
+    assert a.startswith("1:personal-diary:")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_paused_ingest_keeps_checkpoint_then_frees_it_on_resume(tmp_path: Path):
+    """A paused batch's agent thread survives until resume, then is dropped."""
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+
+    from atlasmind.agents import kb_ingestion
+
+    class FakeModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    kb_ingestion.reset_cache()
+    bootstrap_run(vault_path=tmp_path)
+    kb_ingestion.get_agent(tmp_path, "personal-diary", FakeModel(responses=[
+        AIMessage(content="", tool_calls=[{"name": "ask_user", "args": {"question": "Which?"},
+                                           "id": "q1", "type": "tool_call"}]),
+        AIMessage(content="", tool_calls=[{"name": "finalize", "args": {"summary_for_user": "Done."},
+                                           "id": "f1", "type": "tool_call"}]),
+        AIMessage(content="ok"),
+    ]))
+    saver = kb_ingestion._saver_cache[kb_ingestion._cache_key(tmp_path, "personal-diary")]
+
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(return_value=_normalized())),
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "x", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: None),
+    ):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.05)
+        await p.process(_raw(user_id=1), thread_id="1")
+        await asyncio.sleep(0.2)
+
+        agent_thread = p._pending_ingest["1:personal-diary"][3]
+        assert list(saver.list({"configurable": {"thread_id": agent_thread}}))
+
+        result = await p.resume(thread_id="1:personal-diary", answer="that one", user_id=1)
+
+    assert result == {"reply": "Done."}
+    assert not list(saver.list({"configurable": {"thread_id": agent_thread}}))
+    kb_ingestion.reset_cache()

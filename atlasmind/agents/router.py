@@ -51,6 +51,13 @@ def get_agent(vault_root: Path, model: BaseChatModel | None = None) -> object:
     return _agent_cache[key]
 
 
+def forget_thread(vault_root: Path, thread_id: str) -> None:
+    """Drop a finished run's checkpoint so dead threads do not accumulate in memory."""
+    saver = _saver_cache.get(_cache_key(vault_root))
+    if saver is not None:
+        saver.delete_thread(thread_id)
+
+
 def reset_cache() -> None:
     """Clear the agent and saver caches. Call in tests to isolate vault roots."""
     _agent_cache.clear()
