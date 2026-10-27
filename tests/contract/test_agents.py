@@ -178,3 +178,67 @@ async def test_kb_ingestion_interrupt_flow(bootstrapped_vault: Path):
         "Sofía P.", bootstrapped_vault, "personal-diary", thread_id, model=model
     )
     assert r2["summary"] == "Filed after clarification."
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_kb_agent_recovers_from_rejected_tool_call(bootstrapped_vault: Path):
+    """A raising tool becomes an error ToolMessage; the agent retries and the batch completes."""
+    from langchain_core.messages import ToolMessage
+
+    good_path = "notes/2026-05-04-walk.md"
+    model = FakeToolCallingModel(responses=[
+        AIMessage(content="", tool_calls=[
+            ToolCall(name="write_page", args={"rel_path": "../_meta/kb_registry.md",
+                                              "content": "pwned"}, id="tc1", type="tool_call"),
+        ]),
+        AIMessage(content="", tool_calls=[
+            ToolCall(name="write_page", args={"rel_path": good_path, "content": "# Walk"},
+                     id="tc2", type="tool_call"),
+        ]),
+        AIMessage(content="", tool_calls=[
+            ToolCall(name="finalize", args={"summary_for_user": "Filed walk."},
+                     id="tc3", type="tool_call"),
+        ]),
+        AIMessage(content="Done."),
+    ])
+
+    result = await kb_ingestion.ingest([_routed()], bootstrapped_vault, "t-err", model=model)
+
+    assert result["summary"] == "Filed walk."
+    assert "pwned" not in (bootstrapped_vault / "_meta" / "kb_registry.md").read_text()
+    assert (bootstrapped_vault / "personal-diary" / good_path).exists()
+
+    agent = kb_ingestion.get_agent(bootstrapped_vault, "personal-diary")
+    state = await agent.aget_state({"configurable": {"thread_id": "t-err"}})
+    errors = [m for m in state.values["messages"]
+              if isinstance(m, ToolMessage) and m.status == "error"]
+    assert len(errors) == 1
+    assert "escapes KB root" in errors[0].content
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_lint_agent_recovers_from_rejected_tool_call(bootstrapped_vault: Path):
+    """The lint agent shares the tool-error contract with the ingestion agent."""
+    from atlasmind.agents import lint
+
+    lint.reset_cache()
+    model = FakeToolCallingModel(responses=[
+        AIMessage(content="", tool_calls=[
+            ToolCall(name="read_page", args={"rel_path": "../../etc/passwd"},
+                     id="tc1", type="tool_call"),
+        ]),
+        AIMessage(content="", tool_calls=[
+            ToolCall(name="finalize_lint", args={"summary_for_user": "Lint clean."},
+                     id="tc2", type="tool_call"),
+        ]),
+        AIMessage(content="Done."),
+    ])
+    result = await lint.run(
+        vault_root=bootstrapped_vault, kb_slug="personal-diary", thread_id="t-lint-err",
+        model=model,
+    )
+    lint.reset_cache()
+
+    assert result["summary"] == "Lint clean."

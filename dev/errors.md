@@ -93,3 +93,20 @@ _No errors filed yet._
 
 ### Learning
 - When a flow can complete on two paths (direct or after resume), put the completion side effects in one function and test both paths for them.
+
+## E-004 — A raising tool aborts the agent run
+**Date:** 2026-10-27
+**Encountered in:** fix/agent-tool-errors (found by a local end-to-end chat QA harness)
+**Layer:** agents (router, kb_ingestion, lint)
+
+### What happened
+- A KB ingestion agent that called `write_page("../_meta/kb_registry.md", ...)` got `PathEscapeError` propagated out of `agent.ainvoke()`. The user saw `Ingestion failed: Path ... escapes KB root`, the queued items were dropped, and the router log entry plus raw capture were left uncommitted.
+
+### Root cause
+- LangChain 1.x `create_agent` builds its `ToolNode` with the default `handle_tool_errors`, which only converts argument-validation errors (`ToolInvocationError`). Any other exception raised by a tool propagates and ends the graph run. The spec assumed "tool returns error; agent retries" without anything implementing it.
+
+### Fix
+- `atlasmind/agents/middleware.py::ToolErrorsAsMessages` (`wrap_tool_call` + `awrap_tool_call`) converts tool exceptions into `ToolMessage(status="error")` and re-raises `GraphBubbleUp` so `ask_user` interrupts still work. Installed on all three agents. Fixed in the `fix/agent-tool-errors` PR.
+
+### Learning
+- In LangChain 1.x, tool exceptions are fatal by default. Any "the agent will retry" behavior must be wired explicitly, and an error handler must never catch `GraphBubbleUp`, or HITL silently breaks.

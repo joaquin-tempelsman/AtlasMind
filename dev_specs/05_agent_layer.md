@@ -337,6 +337,7 @@ This system is intended to run for years. A few specific concerns and how v0 han
 | Router's `commit_route` called with unknown `kb_slug` | router tool | tool returns error to agent; agent retries; if agent insists, `ask_user` |
 | Router routes to an inactive KB | router tool | `list_kbs()` returns only active KBs; inactive KBs are never in the list |
 | KB agent tries to write outside its folder | tool path validator | tool returns error; agent retries with corrected path |
+| Any tool raises (path escape, I/O, bad frontmatter) | `ToolErrorsAsMessages` middleware | exception becomes a `ToolMessage(status="error")` the agent can read and retry; `GraphBubbleUp` (HITL `interrupt()`) is re-raised. Installed on the router, KB ingestion and lint agents. Tools themselves still raise. |
 | KB agent never calls `finalize` (loops, exhausts tokens) | pipeline | enforce a hard step limit on the agent invocation; if exceeded, abort, no commit |
 | OpenAI rate-limit / timeout | LangChain retry layer | one automatic retry; on second failure, propagate as ingest failure |
 | HITL interrupt with no follow-up (user disappears) | session timeout | session evicted at 10 min; thread state lingers in checkpointer until process restart |
