@@ -476,3 +476,123 @@ async def test_paused_kb_defers_new_batch_until_resume(tmp_path: Path):
 
     assert len(ingested) == 2
     assert [i.normalized.text for i in ingested[1]] == ["Padel with Sebi."]
+
+
+# ── agent thread scope: each item / batch is an independent agent conversation ──
+
+def _recording_model(responses: list):
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import HumanMessage
+
+    class Recording(FakeMessagesListChatModel):
+        human_counts: list = []
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.human_counts.append(sum(isinstance(m, HumanMessage) for m in messages))
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    return Recording(responses=responses, human_counts=[])
+
+
+def _tc(name: str, tc_id: str, **args):
+    from langchain_core.messages import AIMessage
+
+    return AIMessage(content="", tool_calls=[
+        {"name": name, "args": args, "id": tc_id, "type": "tool_call"},
+    ])
+
+
+@pytest.fixture()
+def fresh_agents():
+    from atlasmind.agents import kb_ingestion, router
+
+    router.reset_cache()
+    kb_ingestion.reset_cache()
+    yield
+    router.reset_cache()
+    kb_ingestion.reset_cache()
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_router_sees_only_the_current_item(tmp_path: Path, fresh_agents):
+    """Consecutive messages from one user do not share router conversation history."""
+    from langchain_core.messages import AIMessage
+
+    from atlasmind.agents import router
+
+    bootstrap_run(vault_path=tmp_path)
+    commit = {"kb_slug": "personal-diary", "rationale": "Diary.", "confidence": "high"}
+    model = _recording_model([
+        _tc("commit_route", "a1", **commit), AIMessage(content="ok"),
+        _tc("commit_route", "b1", **commit), AIMessage(content="ok"),
+    ])
+    router.get_agent(tmp_path, model)
+
+    with patch("atlasmind.pipeline.classify_amendment", new=AsyncMock(
+        return_value={"kind": "new"}
+    )):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        await p.process(_raw(text="First"), thread_id="1")
+        await p.process(_raw(text="Second"), thread_id="1")
+
+    assert model.human_counts == [1, 1, 1, 1]
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_router_hitl_resume_still_round_trips(tmp_path: Path, fresh_agents):
+    """With per-item router threads, an ask_user answer still resumes the right run."""
+    from langchain_core.messages import AIMessage
+
+    from atlasmind.agents import router
+
+    bootstrap_run(vault_path=tmp_path)
+    model = _recording_model([
+        _tc("ask_user", "q1", question="Diary or econ?"),
+        _tc("commit_route", "c1", kb_slug="personal-diary", rationale="User said.",
+            confidence="medium"),
+        AIMessage(content="ok"),
+    ])
+    router.get_agent(tmp_path, model)
+
+    p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+    first = await p.process(_raw(text="Chat about inflation"), thread_id="1")
+    assert first == {"interrupt_question": "Diary or econ?"}
+
+    result = await p.resume(thread_id="1", answer="diary", user_id=1)
+    assert "reply" in result
+    assert p._queues["personal-diary"][0].routing_rationale == "User said."
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_ingest_batches_do_not_share_history(tmp_path: Path, fresh_agents):
+    """A second batch for the same KB starts a fresh ingestion conversation."""
+    from langchain_core.messages import AIMessage
+
+    from atlasmind.agents import kb_ingestion
+
+    bootstrap_run(vault_path=tmp_path)
+    model = _recording_model([
+        _tc("finalize", "f1", summary_for_user="one"), AIMessage(content="ok"),
+        _tc("finalize", "f2", summary_for_user="two"), AIMessage(content="ok"),
+    ])
+    kb_ingestion.get_agent(tmp_path, "personal-diary", model)
+
+    p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=0.05)
+    with (
+        patch("atlasmind.pipeline.route", new=AsyncMock(return_value={
+            "kb_slug": "personal-diary", "rationale": "x", "confidence": "high",
+        })),
+        patch("atlasmind.pipeline._vault_commit", new=lambda *a, **k: None),
+    ):
+        await p.process(_raw(text="Batch one"), thread_id="1")
+        await asyncio.sleep(0.2)
+        await p.process(_raw(text="Batch two"), thread_id="1")
+        await asyncio.sleep(0.2)
+
+    assert model.human_counts == [1, 1, 1, 1]
