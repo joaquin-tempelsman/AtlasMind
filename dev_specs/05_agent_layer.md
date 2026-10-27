@@ -93,12 +93,12 @@ Minimal — the router should not be a swiss army knife.
 | `list_kbs()` | Returns `[{slug, name, description}, ...]` for active KBs from `_meta/kb_registry.md`. The router always calls this once at start (idempotent). |
 | `read_recent_routing(n=20)` | Returns up to N entries from `_meta/general_log.md` using stratified sampling (one per vault, then reverse-chron fill). |
 | `read_routing_rules()` | Returns the contents of `_meta/routing_rules.md` (human-editable hints). |
-| `commit_route(kb_slug, rationale, confidence)` | The terminal action. Validates `kb_slug` against the active registry, appends an entry to `_meta/general_log.md`, returns `{"ok": True, "kb_slug": ..., "log_entry": ...}`. The agent's run ends after this tool returns. |
+| `commit_route(kb_slug, rationale, confidence)` | The terminal action. Validates `kb_slug` against the active registry, appends an entry to `_meta/general_log.md`, returns `{"ok": True, "kb_slug": ..., "rationale": ..., "confidence": ..., "log_entry": ...}` (or `{"ok": False, "error": ...}`). The agent's run ends after this tool returns. |
 | `ask_user(question)` | LangGraph `interrupt()` for HITL — only used when the router has low confidence and wants to confirm. |
 
 ### Output (to the pipeline)
 
-The router does not emit a Python object directly. It emits a structured tool call (`commit_route`) whose effect *is* the routing decision. The pipeline reads the latest `general_log.md` entry to construct the `RoutedItem`. This keeps the agent's contract grounded in observable file state — easier to debug than parsing a free-form last message.
+The router does not emit a Python object directly. It emits a structured tool call (`commit_route`) whose effect *is* the routing decision. `route()` / `resume_route()` read the decision from **this run's** latest successful `commit_route` result (`ok: true`, only messages after the item's HumanMessage), which mirrors the entry it just appended to `general_log.md`. If the run ends without a successful `commit_route`, they raise `RouterNoDecisionError`; the pipeline replies with a routing error and queues nothing. The log file is never re-read to infer a decision: its last entry may belong to an earlier item.
 
 ### Routing prompt sketch
 

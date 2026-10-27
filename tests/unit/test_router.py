@@ -167,3 +167,51 @@ async def test_router_agent_is_cached(tmp_path: Path):
     a1 = router.get_agent(tmp_path, model)
     a2 = router.get_agent(tmp_path, model)
     assert a1 is a2
+
+
+def _commit_result(payload, tc_id: str = "c1"):
+    from langchain_core.messages import ToolMessage
+
+    content = payload if isinstance(payload, str) else __import__("json").dumps(payload)
+    return ToolMessage(content=content, tool_call_id=tc_id, name="commit_route")
+
+
+_OK = {"ok": True, "kb_slug": "personal-diary", "rationale": "r", "confidence": "high"}
+
+
+@pytest.mark.unit
+def test_committed_route_ignores_commits_from_earlier_turns():
+    from langchain_core.messages import HumanMessage
+
+    result = {"messages": [
+        HumanMessage(content="item 1"), _commit_result(_OK),
+        HumanMessage(content="item 2"), AIMessage(content="no tool call"),
+    ]}
+    with pytest.raises(router.RouterNoDecisionError):
+        router._committed_route(result)
+
+
+@pytest.mark.unit
+def test_committed_route_skips_failed_and_unparseable_commits():
+    from langchain_core.messages import HumanMessage
+
+    result = {"messages": [
+        HumanMessage(content="item"),
+        _commit_result({"ok": False, "error": "Unknown kb_slug"}, "c1"),
+        _commit_result("not json", "c2"),
+    ]}
+    with pytest.raises(router.RouterNoDecisionError):
+        router._committed_route(result)
+
+
+@pytest.mark.unit
+def test_committed_route_returns_latest_successful_commit():
+    from langchain_core.messages import HumanMessage
+
+    later = {**_OK, "kb_slug": "econ-politics", "confidence": "medium"}
+    result = {"messages": [
+        HumanMessage(content="item"), _commit_result(_OK, "c1"), _commit_result(later, "c2"),
+    ]}
+    assert router._committed_route(result) == {
+        "kb_slug": "econ-politics", "rationale": "r", "confidence": "medium",
+    }

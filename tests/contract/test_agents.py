@@ -242,3 +242,59 @@ async def test_lint_agent_recovers_from_rejected_tool_call(bootstrapped_vault: P
     lint.reset_cache()
 
     assert result["summary"] == "Lint clean."
+
+
+def _commit(kb_slug: str, rationale: str, confidence: str, tc_id: str) -> AIMessage:
+    return AIMessage(content="", tool_calls=[
+        ToolCall(name="commit_route", args={
+            "kb_slug": kb_slug, "rationale": rationale, "confidence": confidence,
+        }, id=tc_id, type="tool_call"),
+    ])
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_router_without_commit_raises_instead_of_reusing_stale_log(
+    bootstrapped_vault: Path,
+):
+    """A router run that never commits must not inherit the previous message's route."""
+    model = FakeToolCallingModel(responses=[
+        _commit("econ-politics", "Article.", "high", "tc1"),
+        AIMessage(content="Routed."),
+        # Second message: the model answers in prose and never calls commit_route.
+        AIMessage(content="I think this is diary."),
+    ])
+    first = await router.route(_item("FT on rates"), bootstrapped_vault, "r-a", model=model)
+    assert first["kb_slug"] == "econ-politics"
+
+    with pytest.raises(router.RouterNoDecisionError):
+        await router.route(_item("Went to the dentist"), bootstrapped_vault, "r-b", model=model)
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_router_decision_comes_from_this_runs_commit(bootstrapped_vault: Path):
+    """The returned route mirrors this run's commit_route args (slug, rationale, confidence)."""
+    model = FakeToolCallingModel(responses=[
+        _commit("personal-diary", "Dinner with friends.", "medium", "tc1"),
+        AIMessage(content="Routed."),
+    ])
+    result = await router.route(_item(), bootstrapped_vault, "r-c", model=model)
+
+    assert result == {
+        "kb_slug": "personal-diary", "rationale": "Dinner with friends.", "confidence": "medium",
+    }
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_router_rejected_commit_then_valid_commit_uses_valid_one(bootstrapped_vault: Path):
+    """A failed commit_route (unknown KB) is not a decision; the later valid one is."""
+    model = FakeToolCallingModel(responses=[
+        _commit("not-a-kb", "Idea.", "high", "tc1"),
+        _commit("personal-diary", "Actually an event.", "high", "tc2"),
+        AIMessage(content="Routed."),
+    ])
+    result = await router.route(_item(), bootstrapped_vault, "r-d", model=model)
+
+    assert result["kb_slug"] == "personal-diary"

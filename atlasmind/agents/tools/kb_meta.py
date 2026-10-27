@@ -148,6 +148,12 @@ def make_kb_meta_tools(vault_root: Path) -> list:
             file_path=file_path,
         )
         append_md(vault_root, "_meta/general_log.md", "\n" + log_entry)
-        return {"ok": True, "kb_slug": kb_slug, "log_entry": log_entry}
+        return {
+            "ok": True,
+            "kb_slug": kb_slug,
+            "rationale": rationale,
+            "confidence": confidence,
+            "log_entry": log_entry,
+        }
 
     return [list_kbs, read_recent_routing, read_routing_rules, commit_route]

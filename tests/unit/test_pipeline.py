@@ -425,3 +425,23 @@ async def test_repeated_ingest_interrupt_keeps_batch_paused(tmp_path: Path):
 
     assert result == {"interrupt_question": "And Sebi?"}
     assert p._pending_ingest["1:personal-diary"] == ("personal-diary", 1, [])
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_router_no_decision_returns_error_and_queues_nothing(tmp_path: Path):
+    """If the router never commits, the user gets an error and nothing is queued."""
+    from atlasmind.agents.router import RouterNoDecisionError
+
+    bootstrap_run(vault_path=tmp_path)
+    with (
+        patch("atlasmind.pipeline.normalize", new=AsyncMock(return_value=_normalized())),
+        patch("atlasmind.pipeline.route", new=AsyncMock(
+            side_effect=RouterNoDecisionError("Router finished without choosing a KB")
+        )),
+    ):
+        p = Pipeline(vault_root=tmp_path, ingest_delay_seconds=3600)
+        result = await p.process(_raw(text="Went to the dentist"), thread_id="t-nd")
+
+    assert result == {"error": "Routing failed: Router finished without choosing a KB"}
+    assert p._queues == {}

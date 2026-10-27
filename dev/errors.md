@@ -110,3 +110,20 @@ _No errors filed yet._
 
 ### Learning
 - In LangChain 1.x, tool exceptions are fatal by default. Any "the agent will retry" behavior must be wired explicitly, and an error handler must never catch `GraphBubbleUp`, or HITL silently breaks.
+
+## E-005 — Router reused a stale route when it did not commit
+**Date:** 2026-10-27
+**Encountered in:** fix/router-decision (found by a local end-to-end chat QA harness)
+**Layer:** agents.router
+
+### What happened
+- A router run whose model answered in prose ("I think this is diary.") without calling `commit_route` still returned a route. "Went to the dentist" was queued under whatever KB the *previous* message had gone to.
+
+### Root cause
+- `route()` built its result from the last entry of `_meta/general_log.md`. That file is append-only across all items, so a run that wrote nothing returned the prior item's decision. It only raised when the log was completely empty.
+
+### Fix
+- `_committed_route()` reads the decision from this run's successful `commit_route` ToolMessage, scoped to messages after the item's HumanMessage, and raises `RouterNoDecisionError` otherwise. `commit_route` now echoes `rationale` and `confidence`. Fixed in the `fix/router-decision` PR.
+
+### Learning
+- "Read the latest shared state" is only a valid result channel if the current run is guaranteed to have written it. Derive a run's output from that run's own tool results.

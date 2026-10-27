@@ -89,3 +89,16 @@ def test_commit_route_writes_source_and_preview(tmp_path: Path):
     log = (tmp_path / "_meta" / "general_log.md").read_text()
     assert "voice" in log
     assert "Met Mateo today" in log
+
+
+@pytest.mark.unit
+def test_commit_route_echoes_decision_fields(tmp_path: Path):
+    """The success payload carries rationale + confidence so callers need not re-read the log."""
+    bootstrap_run(vault_path=tmp_path)
+    commit = next(t for t in make_kb_meta_tools(tmp_path) if t.name == "commit_route")
+    out = commit.invoke({
+        "kb_slug": "personal-diary", "rationale": "Real event.", "confidence": "low",
+    })
+    assert out["ok"] is True
+    assert out["rationale"] == "Real event."
+    assert out["confidence"] == "low"
