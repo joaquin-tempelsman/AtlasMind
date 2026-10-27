@@ -127,3 +127,20 @@ _No errors filed yet._
 
 ### Learning
 - "Read the latest shared state" is only a valid result channel if the current run is guaranteed to have written it. Derive a run's output from that run's own tool results.
+
+## E-006 — Agent conversations accumulated across items
+**Date:** 2026-10-27
+**Encountered in:** fix/agent-thread-scope (found by a local end-to-end chat QA harness)
+**Layer:** pipeline, agents.router, agents.kb_ingestion
+
+### What happened
+- In one simulated session the router's model input grew from 2 to 52 messages. Each new item was appended to the same conversation as every previous item, and the same happened per KB for ingest batches. Against gpt-4o this means steadily rising cost and earlier items influencing new routing and filing decisions until the process restarts.
+
+### Root cause
+- The checkpointer `thread_id` doubled as the HITL resume key. Since resumes must round-trip per user, it was set to `str(user_id)` / `"<user_id>:<kb_slug>"`, which made every run append to one long-lived thread. `SummarizationMiddleware` (spec §5) was never wired, so nothing bounded it.
+
+### Fix
+- Split the two roles: the edge keeps its per-user thread ids, and each agent run gets its own thread (`<edge thread>:<run id>`), mapped while paused and deleted via `forget_thread()` once finished. Fixed in the `fix/agent-thread-scope` PR.
+
+### Learning
+- A LangGraph checkpointer thread is a conversation, not a session key. Scope it to the unit of work. When a user-level key is needed for resume, keep a separate mapping instead of reusing the thread id.

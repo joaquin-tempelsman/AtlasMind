@@ -272,3 +272,28 @@ def test_batch_message_no_raw_capture_line_when_absent(tmp_path: Path):
     bootstrap_run(vault_path=tmp_path)
     msg = _build_batch_message(tmp_path, "personal-diary", [_routed()])
     assert "Raw capture" not in msg
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_forget_thread_drops_checkpoint(tmp_path: Path):
+    bootstrap_run(vault_path=tmp_path)
+    model = FakeToolCallingModel(responses=[
+        AIMessage(content="", tool_calls=[
+            ToolCall(name="finalize", args={"summary_for_user": "s"}, id="tc1", type="tool_call"),
+        ]),
+        AIMessage(content="ok"),
+    ])
+    await kb_ingestion.ingest([_routed()], tmp_path, "t-forget", model=model)
+    saver = kb_ingestion._saver_cache[kb_ingestion._cache_key(tmp_path, "personal-diary")]
+    config = {"configurable": {"thread_id": "t-forget"}}
+    assert list(saver.list(config))
+
+    kb_ingestion.forget_thread(tmp_path, "personal-diary", "t-forget")
+
+    assert not list(saver.list(config))
+
+
+@pytest.mark.unit
+def test_forget_thread_without_agent_is_noop(tmp_path: Path):
+    kb_ingestion.forget_thread(tmp_path, "personal-diary", "never-ran")

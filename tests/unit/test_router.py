@@ -215,3 +215,30 @@ def test_committed_route_returns_latest_successful_commit():
     assert router._committed_route(result) == {
         "kb_slug": "econ-politics", "rationale": "r", "confidence": "medium",
     }
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_forget_thread_drops_checkpoint(tmp_path: Path):
+    bootstrap_run(vault_path=tmp_path)
+    router.reset_cache()
+    model = FakeToolCallingModel(responses=[
+        AIMessage(content="", tool_calls=[ToolCall(name="commit_route", args={
+            "kb_slug": "personal-diary", "rationale": "r", "confidence": "high",
+        }, id="tc1", type="tool_call")]),
+        AIMessage(content="ok"),
+    ])
+    await router.route(_item(), tmp_path, "t-forget", model=model)
+    saver = router._saver_cache[router._cache_key(tmp_path)]
+    assert list(saver.list({"configurable": {"thread_id": "t-forget"}}))
+
+    router.forget_thread(tmp_path, "t-forget")
+
+    assert not list(saver.list({"configurable": {"thread_id": "t-forget"}}))
+    router.reset_cache()
+
+
+@pytest.mark.unit
+def test_forget_thread_without_agent_is_noop(tmp_path: Path):
+    router.reset_cache()
+    router.forget_thread(tmp_path, "never-ran")
